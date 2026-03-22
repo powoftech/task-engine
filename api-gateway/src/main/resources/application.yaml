@@ -1,0 +1,36 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  # PostgreSQL Database Configuration
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:5432/${DB_NAME:task_engine}
+    username: ${DB_USER:green_user}
+    password: ${DB_PASSWORD:green_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10 # Architectural constraint: Protect DB from overload
+      minimum-idle: 2
+      connection-timeout: 20000 # 20 seconds
+
+  # JPA / Hibernate Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate # We manage schema via init.sql / migrations, NOT Hibernate
+    show-sql: false
+
+  # RabbitMQ Configuration
+  rabbitmq:
+    host: ${MQ_HOST:localhost}
+    port: ${MQ_PORT:5672}
+    username: ${MQ_USER:green_user}
+    password: ${MQ_PASSWORD:green_password}
+    listener:
+      simple:
+        retry:
+          enabled: true
+          initial-interval: 1000ms
+          max-retries: 3

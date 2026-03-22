@@ -1,0 +1,50 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:18.3-alpine
+    container_name: task-engine-db
+    environment:
+      POSTGRES_USER: green_user
+      POSTGRES_PASSWORD: green_password
+      POSTGRES_DB: task_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Automatically run our init.sql on first boot
+      - ./infra/db-init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U green_user -d task_engine"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - task_network
+
+  # RabbitMQ Message Broker (with Management UI)
+  rabbitmq:
+    image: rabbitmq:4.2-management-alpine
+    container_name: task-engine-mq
+    environment:
+      RABBITMQ_DEFAULT_USER: green_user
+      RABBITMQ_DEFAULT_PASS: green_password
+    ports:
+      - "5672:5672" # AMQP protocol port
+      - "15672:15672" # Management UI port
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - task_network
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+
+networks:
+  task_network:
+    driver: bridge
