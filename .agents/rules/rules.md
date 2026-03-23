@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # **Coding Agent System Prompt & Guidelines**
 
 **Project:** Distributed "AI Task" Execution Engine
