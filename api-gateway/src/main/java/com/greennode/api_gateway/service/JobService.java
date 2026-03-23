@@ -1,22 +1,24 @@
 package com.greennode.api_gateway.service;
 
-import com.greennode.api_gateway.config.RabbitMQConfig;
 import com.greennode.api_gateway.dto.JobMessage;
 import com.greennode.api_gateway.dto.JobRequest;
 import com.greennode.api_gateway.entity.Job;
 import com.greennode.api_gateway.entity.JobStatus;
+import com.greennode.api_gateway.entity.OutboxEvent;
 import com.greennode.api_gateway.repository.JobRepository;
+import com.greennode.api_gateway.repository.OutboxEventRepository;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Orchestrates the core business logic. Enforces the architectural rule: Log all incoming requests
- * and outgoing RabbitMQ publishes.
+ * Orchestrates the core business logic. Uses the Transactional Outbox Pattern to ensure atomicity
+ * between database writes and message publishing.
  */
 @Service
 public class JobService {
@@ -24,36 +26,54 @@ public class JobService {
     private static final Logger log = LoggerFactory.getLogger(JobService.class);
 
     private final JobRepository jobRepository;
-    private final RabbitTemplate rabbitTemplate;
+    private final OutboxEventRepository outboxEventRepository;
+    private final JsonMapper jsonMapper;
 
     // Constructor Injection (Preferred over @Autowired)
-    public JobService(JobRepository jobRepository, RabbitTemplate rabbitTemplate) {
+    public JobService(
+            JobRepository jobRepository,
+            OutboxEventRepository outboxEventRepository,
+            JsonMapper jsonMapper) {
         this.jobRepository = jobRepository;
-        this.rabbitTemplate = rabbitTemplate;
+        this.outboxEventRepository = outboxEventRepository;
+        this.jsonMapper = jsonMapper;
     }
 
     /**
-     * Submits a new job. @Transactional ensures that if the DB save fails, we don't accidentally
-     * publish a ghost message to MQ.
+     * Submits a new job using the Transactional Outbox Pattern. @Transactional ensures that both
+     * the Job and OutboxEvent are written atomically, preventing race conditions.
      */
     @Transactional
     public Job submitJob(JobRequest request) {
         UUID jobId = UUID.randomUUID();
 
-        // 1. Initialize and save to DB
+        // 1. Initialize and save Job to database
         Job job = new Job(jobId, request.getTaskType(), JobStatus.PENDING);
         job = jobRepository.save(job);
         log.info("Persisted new job [{}] to database with status PENDING", jobId);
 
-        // 2. Publish to RabbitMQ
-        JobMessage message = new JobMessage(jobId, request.getTaskType(), request.getComplexity());
-        rabbitTemplate.convertAndSend(
-                RabbitMQConfig.EXCHANGE_NAME, RabbitMQConfig.ROUTING_KEY, message);
-        log.info(
-                "Published job [{}] to RabbitMQ Exchange [{}]",
-                jobId,
-                RabbitMQConfig.EXCHANGE_NAME);
+        // 2. Create and persist OutboxEvent (instead of direct RabbitMQ publish)
+        try {
+            JobMessage message =
+                    new JobMessage(jobId, request.getTaskType(), request.getComplexity());
+            String messageJson = jsonMapper.writeValueAsString(message);
 
+            OutboxEvent event =
+                    new OutboxEvent(
+                            jobId, // aggregate_id
+                            "JOB", // aggregate_type
+                            "JOB_CREATED", // event_type
+                            messageJson // payload
+                            );
+            outboxEventRepository.save(event);
+            log.info("Persisted outbox event [{}] for job [{}]", event.getId(), jobId);
+
+        } catch (JacksonException e) {
+            log.error("Failed to serialize JobMessage for job [{}]: {}", jobId, e.getMessage());
+            throw new RuntimeException("Failed to serialize job message", e);
+        }
+
+        // Both writes are in the same transaction - atomicity guaranteed!
         return job;
     }
 

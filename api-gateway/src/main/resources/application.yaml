@@ -14,13 +14,20 @@ spring:
     hikari:
       maximum-pool-size: 10 # Architectural constraint: Protect DB from overload
       minimum-idle: 2
-      connection-timeout: 20000 # 20 seconds
+      connection-timeout: 30000 # 30 seconds
+      idle-timeout: 600000 # 10 minutes
+      max-lifetime: 1800000 # 30 minutes
+      register-mbeans: true
 
   # JPA / Hibernate Configuration
   jpa:
     hibernate:
       ddl-auto: validate # We manage schema via init.sql / migrations, NOT Hibernate
     show-sql: false
+    properties:
+      hibernate:
+        type:
+          "[json_format_mapper]": com.greennode.api_gateway.utilities.CustomHibernateJsonFormatter
 
   # RabbitMQ Configuration
   rabbitmq:
@@ -34,3 +41,8 @@ spring:
           enabled: true
           initial-interval: 1000ms
           max-retries: 3
+
+# Transactional Outbox Pattern Configuration
+outbox:
+  publisher:
+    fixed-delay: 1000 # Poll outbox table every 1 second (1000ms)
