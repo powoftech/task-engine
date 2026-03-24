@@ -17,8 +17,8 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Orchestrates the core business logic. Uses the Transactional Outbox Pattern to ensure atomicity
- * between database writes and message publishing.
+ * Orchestrates the core business logic. Uses the Transactional Outbox Pattern with Debezium CDC to
+ * ensure atomicity between database writes and message publishing.
  */
 @Service
 public class JobService {
@@ -40,8 +40,9 @@ public class JobService {
     }
 
     /**
-     * Submits a new job using the Transactional Outbox Pattern. @Transactional ensures that both
-     * the Job and OutboxEvent are written atomically, preventing race conditions.
+     * Submits a new job using the Transactional Outbox Pattern with Debezium CDC. @Transactional
+     * ensures that both the Job and OutboxEvent are written atomically. Debezium captures the
+     * outbox insert via CDC and publishes to RabbitMQ, preventing race conditions.
      */
     @Transactional
     public Job submitJob(JobRequest request) {
@@ -52,7 +53,7 @@ public class JobService {
         job = jobRepository.save(job);
         log.info("Persisted new job [{}] to database with status PENDING", jobId);
 
-        // 2. Create and persist OutboxEvent (instead of direct RabbitMQ publish)
+        // 2. Create and persist OutboxEvent (Debezium CDC will capture and publish to RabbitMQ)
         try {
             JobMessage message =
                     new JobMessage(jobId, request.getTaskType(), request.getComplexity());
@@ -60,14 +61,13 @@ public class JobService {
 
             OutboxEvent event =
                     new OutboxEvent(
-                            jobId, // aggregate_id
+                            jobId.toString(), // aggregate_id
                             "JOB", // aggregate_type
-                            "JOB_CREATED", // event_type
+                            "JOB_CREATED", // type
                             messageJson // payload
                             );
             outboxEventRepository.save(event);
             log.info("Persisted outbox event [{}] for job [{}]", event.getId(), jobId);
-
         } catch (JacksonException e) {
             log.error("Failed to serialize JobMessage for job [{}]: {}", jobId, e.getMessage());
             throw new RuntimeException("Failed to serialize job message", e);

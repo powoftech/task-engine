@@ -13,11 +13,15 @@ services:
       - postgres_data:/var/lib/postgresql/data
       # Automatically run our init.sql on first boot
       - ./infra/db-init/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Mount PostgreSQL configuration for CDC (logical replication)
+      - ./infra/db-init/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U green_user -d task_engine"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s # Gives Postgres time to do its initial boot
     networks:
       - task_network
 
@@ -28,11 +32,13 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: green_user
       RABBITMQ_DEFAULT_PASS: green_password
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management load_definitions "/etc/rabbitmq/definitions.json"
     ports:
       - "5672:5672" # AMQP protocol port
       - "15672:15672" # Management UI port
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
@@ -41,9 +47,53 @@ services:
     networks:
       - task_network
 
+  debezium:
+    # build:
+    #   context: ./infra/debezium
+    #   dockerfile: Dockerfile
+    image: quay.io/debezium/server:3.4
+    container_name: task-engine-cdc
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - debezium_data:/debezium/data
+      - ./infra/debezium/application.properties:/debezium/config/application.properties
+    networks:
+      - task_network
+    restart: unless-stopped
+
+  # Go Worker Node (Consumes messages from RabbitMQ)
+  worker-node:
+    build:
+      context: ./worker-node
+      dockerfile: Dockerfile
+    container_name: task-engine-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: green_user
+      DB_PASSWORD: green_password
+      DB_NAME: task_engine
+      MQ_HOST: rabbitmq
+      MQ_PORT: 5672
+      MQ_USER: green_user
+      MQ_PASSWORD: green_password
+    networks:
+      - task_network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   rabbitmq_data:
+  debezium_data:
 
 networks:
   task_network:

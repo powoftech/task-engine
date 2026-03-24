@@ -49,27 +49,14 @@ func New(database *db.Database) (*Processor, error) {
 
 // Start consuming messages
 func (p *Processor) Start() error {
-	// Declare the queue (idempotent - safely does nothing if it already exists)
-	_, err := p.channel.QueueDeclare(
-		"ai_tasks_queue", // name
-		true,             // durable
-		false,            // auto-delete
-		false,            // exclusive
-		false,            // no-wait
-		nil,              // args
-	)
-	if err != nil {
-		return fmt.Errorf("failed to declare queue: %w", err)
-	}
-
 	msgs, err := p.channel.Consume(
-		"ai_tasks_queue", // queue
-		"",               // consumer
-		false,            // auto-ack (MUST BE FALSE for reliability)
-		false,            // exclusive
-		false,            // no-local
-		false,            // no-wait
-		nil,              // args
+		"worker.jobs.queue", // queue
+		"",                  // consumer
+		false,               // auto-ack (MUST BE FALSE for reliability)
+		false,               // exclusive
+		false,               // no-local
+		false,               // no-wait
+		nil,                 // args
 	)
 	if err != nil {
 		return fmt.Errorf("failed to register a consumer: %w", err)
@@ -107,7 +94,7 @@ func (p *Processor) processMessage(d amqp.Delivery) {
 		return
 	}
 
-	// 2. Simulate AI Workload (Rule 5 from AGENTS.md)
+	// 2. Simulate AI Workload
 	log.Printf("Processing Job [%s] with complexity %d...", job.JobID, job.Complexity)
 	time.Sleep(time.Duration(job.Complexity) * time.Second)
 

@@ -1,0 +1,65 @@
+{
+  "rabbit_version": "4.2.5",
+  "rabbitmq_version": "4.2.5",
+  "users": [
+    {
+      "name": "green_user",
+      "password": "green_password",
+      "tags": ["administrator"],
+      "limits": {}
+    }
+  ],
+  "permissions": [
+    {
+      "user": "green_user",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/",
+      "description": "Default virtual host",
+      "metadata": {
+        "description": "Default virtual host",
+        "tags": [],
+        "default_queue_type": "classic"
+      },
+      "tags": []
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "cdc.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "worker.jobs.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "cdc.events",
+      "vhost": "/",
+      "destination": "worker.jobs.queue",
+      "destination_type": "queue",
+      "routing_key": "task_engine.public.outbox_events",
+      "arguments": {}
+    }
+  ]
+}
