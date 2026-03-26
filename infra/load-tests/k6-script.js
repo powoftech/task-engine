@@ -9,16 +9,18 @@ const e2eProcessingTime = new Trend("e2e_processing_time");
 // 1. Configure the Load Test Stages
 export const options = {
   stages: [
-    { duration: "10s", target: 50 }, // Ramp up to 50 virtual users over 10 seconds
-    { duration: "30s", target: 50 }, // Hold at 50 virtual users for 30 seconds
-    { duration: "10s", target: 0 }, // Ramp down to 0 users
+    { duration: "30s", target: 50 }, // Warm-up: Ensure system is stable
+    { duration: "1m", target: 200 }, // High Load: Push to Tomcat's default thread limit
+    { duration: "2m", target: 500 }, // Stress: Push beyond HikariCP connection limits
+    { duration: "2m", target: 1000 }, // Breaking Point: Exhaust EC2 resources
+    { duration: "30s", target: 0 }, // Recovery: See if the system gracefully recovers
   ],
   thresholds: {
-    // Gateway ingestion speed: 95% of POST requests within 200ms
-    http_req_duration: ["p(95)<200"],
+    // Gateway ingestion speed: 95% of POST requests within 30ms
+    http_req_duration: ["p(95)<30"],
     http_req_failed: ["rate<0.01"],
-    // System-wide E2E processing: 1000ms task + <2000ms infrastructure overhead
-    e2e_processing_time: ["p(95)<3000"],
+    // System-wide E2E processing: 95% of jobs should complete within 40 seconds
+    e2e_processing_time: ["p(95)<40000"],
   },
 };
 
@@ -40,6 +42,7 @@ export default function () {
     headers: {
       "Content-Type": "application/json",
     },
+    timeout: "10s", // Don't hang forever if the API stalls
   };
 
   // 3. Send the POST request
@@ -54,15 +57,16 @@ export default function () {
     const body = JSON.parse(response.body?.toString() || "{}");
     const jobId = body.id;
 
-    // 5. Polling Loop: Wait for the Go worker to finish processing
-    let status = "PENDING";
-    let attempts = 0;
-    const startTime = Date.now();
+    // 5. Polling Loop with Exponential Backoff (Protects against Polling Storm)
+    let status = "PENDING"; 
+    let attempts = 0; 
+    let backoff = 2; // Start with 2 seconds
+    const startTime = Date.now(); 
 
-    // Poll every 2 seconds, up to 30 times
-    while (status !== "COMPLETED" && attempts < 30) {
-      sleep(2);
+    while (status !== "COMPLETED" && attempts < 15) { // Limit to 15 attempts to prevent infinite loops
+      sleep(backoff);
       attempts++;
+      backoff = Math.min(backoff * 1.5, 10); // Exponential backoff up to 10s
 
       const getResponse = http.get(`${url}/${jobId}`);
       if (getResponse.status === 200) {

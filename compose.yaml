@@ -2,8 +2,8 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:18.3-alpine
-    ports:
-      - "5432:5432"
+    # ports:
+    #   - "5432:5432"
     environment:
       POSTGRES_USER: green_user
       POSTGRES_PASSWORD: green_password
@@ -16,11 +16,7 @@ services:
       - ./infra/db-init/postgresql.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U green_user -d task_engine"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s # Gives Postgres time to do its initial boot
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U green_user -d task_engine || exit 1"]
     networks:
       - task_network
     restart: unless-stopped
@@ -29,7 +25,7 @@ services:
   rabbitmq:
     image: rabbitmq:4.2-management-alpine
     ports:
-      - "5672:5672" # AMQP protocol port
+      # - "5672:5672" # AMQP protocol port
       - "15672:15672" # Management UI port
     environment:
       RABBITMQ_DEFAULT_USER: green_user
@@ -39,10 +35,7 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping || exit 1"]
     networks:
       - task_network
     restart: unless-stopped
@@ -59,11 +52,35 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl -f http://localhost:8080/q/health || exit 1"]
-      interval: 10s # How often to run the check
-      timeout: 10s # Maximum time allowed for the check to complete
-      retries: 5 # Number of consecutive failures before marking as unhealthy
-      start_period: 30s # Grace period for the container to start up
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/q/health || exit 1"]
+    networks:
+      - task_network
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.6-alpine
+    # ports:
+    #   - "6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
+    networks:
+      - task_network
+    restart: unless-stopped
+
+  # Jaeger Tracing (OpenTelemetry Collector)
+  jaeger:
+    # image: jaegertracing/jaeger:latest
+    build:
+      context: ./infra/jaeger
+      dockerfile: Dockerfile
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"
+      # - "4317:4317" # OTLP gRPC port for receiving traces
+      # - "4318:4318" # OTLP HTTP port for receiving traces
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:13133/status || exit 1"]
     networks:
       - task_network
     restart: unless-stopped
@@ -76,7 +93,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     environment:
       DB_HOST: postgres
@@ -88,11 +109,10 @@ services:
       MQ_PORT: 5672
       MQ_USER: green_user
       MQ_PASSWORD: green_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
     deploy:
-      resources:
-        limits:
-          cpus: "0.5" # Architectural constraint: Limit CPU usage to prevent overload
-          memory: 512M # Architectural constraint: Limit memory usage
       replicas: 3
       restart_policy:
         condition: on-failure
@@ -105,17 +125,24 @@ services:
     build:
       context: ./api-gateway
       dockerfile: Dockerfile
-    depends_on:
-      postgres:
-        condition: service_healthy
+    ports:
+      - "8080:8080"
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: green_user
       DB_PASSWORD: green_password
       DB_NAME: task_engine
-    ports:
-      - "8080:8080"
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    depends_on:
+      postgres:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
     networks:
       - task_network
     restart: unless-stopped

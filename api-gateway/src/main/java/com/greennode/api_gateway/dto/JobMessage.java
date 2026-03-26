@@ -11,13 +11,15 @@ public class JobMessage {
     private UUID jobId;
     private String taskType;
     private Integer complexity;
+    private String traceId;
 
     public JobMessage() {}
 
-    public JobMessage(UUID jobId, String taskType, Integer complexity) {
+    public JobMessage(UUID jobId, String taskType, Integer complexity, String traceId) {
         this.jobId = jobId;
         this.taskType = taskType;
         this.complexity = complexity;
+        this.traceId = traceId;
     }
 
     public UUID getJobId() {
@@ -42,5 +44,13 @@ public class JobMessage {
 
     public void setComplexity(Integer complexity) {
         this.complexity = complexity;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
     }
 }

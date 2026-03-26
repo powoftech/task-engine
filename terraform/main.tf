@@ -113,14 +113,14 @@ resource "aws_security_group" "infrastructure" {
     description = "API Gateway HTTP"
   }
 
-  # PostgreSQL (internal only, from load test instance)
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.loadtest.id]
-    description     = "PostgreSQL access from load test instance"
-  }
+  #   # PostgreSQL (internal only, from load test instance)
+  #   ingress {
+  #     from_port       = 5432
+  #     to_port         = 5432
+  #     protocol        = "tcp"
+  #     security_groups = [aws_security_group.loadtest.id]
+  #     description     = "PostgreSQL access from load test instance"
+  #   }
 
   # RabbitMQ Management UI
   ingress {
@@ -131,13 +131,22 @@ resource "aws_security_group" "infrastructure" {
     description = "RabbitMQ Management UI"
   }
 
-  # RabbitMQ AMQP
+  #   # RabbitMQ AMQP
+  #   ingress {
+  #     from_port   = 5672
+  #     to_port     = 5672
+  #     protocol    = "tcp"
+  #     cidr_blocks = [var.vpc_cidr]
+  #     description = "RabbitMQ AMQP"
+  #   }
+
+  # Jaeger UI
   ingress {
-    from_port   = 5672
-    to_port     = 5672
+    from_port   = 16686
+    to_port     = 16686
     protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
-    description = "RabbitMQ AMQP"
+    cidr_blocks = var.allowed_ssh_cidr
+    description = "Jaeger UI"
   }
 
   # Allow all outbound traffic

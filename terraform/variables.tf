@@ -31,7 +31,7 @@ variable "public_subnet_cidr" {
 variable "infrastructure_instance_type" {
   description = "EC2 instance type for infrastructure server"
   type        = string
-  default     = "t3.large" # 2 vCPUs, 8 GB RAM - suitable for running multiple containers
+  default     = "t3.xlarge" # 4 vCPUs, 16 GB RAM - suitable for running multiple containers
 }
 
 variable "loadtest_instance_type" {

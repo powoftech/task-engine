@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,26 +10,33 @@ import (
 	"sync"
 	"time"
 
+	"greennode/worker-node/internal/cache"
 	"greennode/worker-node/internal/db"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
-// JobMessage matches the JSON payload sent by the Java API Gateway
 type JobMessage struct {
 	JobID      string `json:"jobId"`
 	TaskType   string `json:"taskType"`
 	Complexity int    `json:"complexity"`
+	TraceID    string `json:"traceId"`
 }
 
 type Processor struct {
 	dbConn  *db.Database
+	cache   *cache.Cache
 	rmqConn *amqp.Connection
 	channel *amqp.Channel
+	tracer  trace.Tracer
 }
 
-// New initializes the RabbitMQ connection
-func New(database *db.Database) (*Processor, error) {
+// New initializes the RabbitMQ connection and injects dependencies
+func New(database *db.Database, redisCache *cache.Cache) (*Processor, error) {
 	host := getEnv("MQ_HOST", "localhost")
 	port := getEnv("MQ_PORT", "5672")
 	user := getEnv("MQ_USER", "green_user")
@@ -46,10 +54,7 @@ func New(database *db.Database) (*Processor, error) {
 	}
 
 	concurrencyStr := getEnv("WORKER_CONCURRENCY", "10")
-	concurrency, err := strconv.Atoi(concurrencyStr)
-	if err != nil || concurrency < 1 {
-		concurrency = 10
-	}
+	concurrency, _ := strconv.Atoi(concurrencyStr)
 
 	err = ch.Qos(
 		concurrency, // prefetch count
@@ -61,10 +66,15 @@ func New(database *db.Database) (*Processor, error) {
 	}
 
 	log.Println("Connected to RabbitMQ successfully")
-	return &Processor{dbConn: database, rmqConn: conn, channel: ch}, nil
+	return &Processor{
+		dbConn:  database,
+		cache:   redisCache,
+		rmqConn: conn,
+		channel: ch,
+		tracer:  otel.Tracer("job-processor"),
+	}, nil
 }
 
-// Start consuming messages
 func (p *Processor) Start() error {
 	msgs, err := p.channel.Consume(
 		"worker.jobs.queue", // queue
@@ -82,68 +92,82 @@ func (p *Processor) Start() error {
 	log.Println("Worker is waiting for messages...")
 
 	concurrencyStr := getEnv("WORKER_CONCURRENCY", "10")
-	concurrency, err := strconv.Atoi(concurrencyStr)
-	if err != nil || concurrency < 1 {
-		concurrency = 10
-	}
+	concurrency, _ := strconv.Atoi(concurrencyStr)
 
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go func(workerID int) {
+		go func() {
 			defer wg.Done()
 			for d := range msgs {
 				p.processMessage(d)
 			}
-		}(i)
+		}()
 	}
-
 	wg.Wait()
-
 	return nil
 }
 
 func (p *Processor) processMessage(d amqp.Delivery) {
 	var job JobMessage
 	if err := json.Unmarshal(d.Body, &job); err != nil {
-		log.Printf("Error decoding JSON: %v. Payload: %s", err, string(d.Body))
-		d.Nack(false, false) // Reject and don't requeue (send to DLX)
+		log.Printf("Error decoding JSON: %v", err)
+		d.Nack(false, false)
 		return
 	}
 
 	log.Printf("Received Job [%s] Type: %s", job.JobID, job.TaskType)
 
-	// 1. Enforce Idempotency: Try to claim the job
-	claimed, err := p.dbConn.ClaimJob(job.JobID)
-	if err != nil {
-		log.Printf("Database error claiming job [%s]: %v", job.JobID, err)
-		d.Nack(false, true) // Requeue to try again later
-		return
+	// Reconstruct the OpenTelemetry Context from the payload's TraceID
+	ctx := context.Background()
+	if job.TraceID != "" && job.TraceID != "no-trace-id" {
+		if traceID, err := trace.TraceIDFromHex(job.TraceID); err == nil {
+			spanContext := trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID:    traceID,
+				SpanID:     trace.SpanID{}, // Will generate a new SpanID for this worker step
+				TraceFlags: trace.FlagsSampled,
+				Remote:     true, // Indicates this context came from another service
+			})
+			ctx = trace.ContextWithSpanContext(ctx, spanContext)
+		}
 	}
-	if !claimed {
-		log.Printf("Job [%s] already processed or claimed by another worker. Acknowledging safely.", job.JobID)
+
+	// Start a new span linked to the Spring Boot parent trace
+	ctx, span := p.tracer.Start(ctx, "worker.process_job")
+	span.SetAttributes(attribute.String("job.id", job.JobID))
+	span.SetAttributes(attribute.String("job.task_type", job.TaskType))
+	defer span.End()
+
+	cacheCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// 1. Enforce Idempotency via Redis
+	acquired, err := p.cache.ClaimJob(cacheCtx, job.JobID)
+	if err != nil || !acquired {
+		span.AddEvent("job_already_claimed_or_cache_error")
 		d.Ack(false)
 		return
 	}
 
 	// 2. Simulate AI Workload
 	log.Printf("Processing Job [%s] with complexity %d...", job.JobID, job.Complexity)
+	span.AddEvent("starting_ai_simulation")
 	time.Sleep(time.Duration(job.Complexity) * time.Second)
+	span.AddEvent("completed_ai_simulation")
 
-	// 3. Mark as Completed
+	// 3. Mark as Completed (Single Write to DB)
 	mockResult := fmt.Sprintf(`{"status": "success", "processed_in_seconds": %d}`, job.Complexity)
 	if err := p.dbConn.CompleteJob(job.JobID, mockResult); err != nil {
 		log.Printf("Failed to update database for job [%s]: %v", job.JobID, err)
-		d.Nack(false, true) // Requeue so it can be retried
+		span.RecordError(err)
+		d.Nack(false, true)
 		return
 	}
 
-	// 4. Send ACK to RabbitMQ
 	log.Printf("Job [%s] completed successfully.", job.JobID)
 	d.Ack(false)
 }
 
-// Close cleans up connections
 func (p *Processor) Close() {
 	p.channel.Close()
 	p.rmqConn.Close()

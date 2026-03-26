@@ -10,7 +10,7 @@ vpc_cidr           = "10.0.0.0/16"
 public_subnet_cidr = "10.0.1.0/24"
 
 # EC2 Instance Configuration
-infrastructure_instance_type = "t3.large"  # 2 vCPU, 8 GB RAM
+infrastructure_instance_type = "t3.xlarge"  # 4 vCPU, 16 GB RAM
 loadtest_instance_type       = "t3.medium" # 2 vCPU, 4 GB RAM
 
 # SSH Key Pair
