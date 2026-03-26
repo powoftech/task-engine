@@ -37,8 +37,6 @@ Systematic load testing has been conducted using **k6** to validate performance,
 ![RabbitMQ Management UI](docs/images/rabbitmq-load-test-result.png)
 ![Jaeger UI](docs/images/jaeger-load-test-result.png)
 
-_(Insert images from `docs/images/` here showcasing the k6 load test logs, RabbitMQ queue metrics, and Jaeger UI trace graphs)_
-
 ## 🚀 How to Run (Local Development)
 
 The entire infrastructure and microservices stack is containerized for immediate execution.
