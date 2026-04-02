@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** REST API Endpoints. */
 @RestController
 @RequestMapping("/api/v1/jobs")
 public class JobController {
@@ -24,18 +23,12 @@ public class JobController {
         this.jobService = jobService;
     }
 
-    /**
-     * POST /api/v1/jobs @Valid triggers the jakarta.validation constraints defined in our
-     * JobRequest DTO.
-     */
     @PostMapping
     public ResponseEntity<Job> createJob(@Valid @RequestBody JobRequest request) {
         Job job = jobService.submitJob(request);
-        // Return 202 Accepted because the task is queued, not fully processed yet.
         return ResponseEntity.accepted().body(job);
     }
 
-    /** GET /api/v1/jobs/{jobId} */
     @GetMapping("/{jobId}")
     public ResponseEntity<Job> getJob(@PathVariable UUID jobId) {
         return jobService

@@ -15,10 +15,6 @@ import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.dialect.type.PostgreSQLEnumJdbcType;
 import org.hibernate.type.SqlTypes;
 
-/**
- * Represents the state of an AI Task in the database. We avoid Lombok here to maintain absolute
- * transparency of the domain model, though you may use it if preferred in your standard workflow.
- */
 @Entity
 @Table(name = "jobs")
 public class Job {
@@ -45,7 +41,6 @@ public class Job {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    // Protected no-args constructor required by JPA
     protected Job() {}
 
     public Job(UUID id, String taskType, JobStatus status) {
@@ -54,7 +49,6 @@ public class Job {
         this.status = status;
     }
 
-    // Getters and Setters
     public UUID getId() {
         return id;
     }

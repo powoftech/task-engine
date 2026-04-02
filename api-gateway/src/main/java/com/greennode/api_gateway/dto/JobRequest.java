@@ -5,10 +5,6 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
-/**
- * DTO for validating incoming HTTP POST requests. Conforms to the security constraint in AGENTS.md:
- * "Validate all incoming HTTP payloads."
- */
 public class JobRequest {
 
     @NotBlank(message = "Task type cannot be empty") private String taskType;

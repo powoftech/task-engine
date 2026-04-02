@@ -17,10 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
-/**
- * Orchestrates the core business logic. Uses the Transactional Outbox Pattern with Debezium CDC to
- * ensure atomicity between database writes and message publishing.
- */
 @Service
 public class JobService {
 
@@ -31,7 +27,6 @@ public class JobService {
     private final JsonMapper jsonMapper;
     private final Tracer tracer;
 
-    // Constructor Injection (Preferred over @Autowired)
     public JobService(
             JobRepository jobRepository,
             OutboxEventRepository outboxEventRepository,
@@ -43,11 +38,6 @@ public class JobService {
         this.tracer = tracer;
     }
 
-    /**
-     * Submits a new job using the Transactional Outbox Pattern with Debezium CDC. @Transactional
-     * ensures that both the Job and OutboxEvent are written atomically. Debezium captures the
-     * outbox insert via CDC and publishes to RabbitMQ, preventing race conditions.
-     */
     @Transactional
     public Job submitJob(JobRequest request) {
         UUID jobId = UUID.randomUUID();

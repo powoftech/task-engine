@@ -13,11 +13,9 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 )
 
-// InitProvider initializes the OpenTelemetry Provider and connects to Jaeger
 func InitProvider() (func(context.Context) error, error) {
 	ctx := context.Background()
 
-	// Initialize the OTLP gRPC exporter
 	exp, err := otlptracegrpc.New(ctx, otlptracegrpc.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create exporter: %w", err)

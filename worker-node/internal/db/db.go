@@ -6,14 +6,13 @@ import (
 	"log"
 	"os"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
+	_ "github.com/lib/pq"
 )
 
 type Database struct {
 	Conn *sql.DB
 }
 
-// Connect initializes the connection to PostgreSQL
 func Connect() (*Database, error) {
 	host := getEnv("DB_HOST", "localhost")
 	user := getEnv("DB_USER", "green_user")
@@ -35,8 +34,6 @@ func Connect() (*Database, error) {
 	return &Database{Conn: conn}, nil
 }
 
-// ClaimJob updates the job to PROCESSING.
-// This enforces IDEMPOTENCY: if another worker already claimed it, rowsAffected will be 0.
 func (db *Database) ClaimJob(jobID string) (bool, error) {
 	query := `UPDATE jobs SET status = 'PROCESSING' WHERE id = $1 AND status = 'PENDING'`
 	result, err := db.Conn.Exec(query, jobID)
@@ -52,7 +49,6 @@ func (db *Database) ClaimJob(jobID string) (bool, error) {
 	return rows > 0, nil
 }
 
-// CompleteJob updates the job to COMPLETED with a simulated result
 func (db *Database) CompleteJob(jobID string, resultJSON string) error {
 	query := `UPDATE jobs SET status = 'COMPLETED', result = $1 WHERE id = $2`
 	_, err := db.Conn.Exec(query, resultJSON, jobID)

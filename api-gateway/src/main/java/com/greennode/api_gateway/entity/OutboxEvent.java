@@ -10,11 +10,6 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/**
- * Represents a message in the transactional outbox. Each event corresponds to a message that will
- * be captured by Debezium CDC and published to RabbitMQ. By storing these in the database alongside
- * the Job entity, we achieve atomicity and prevent race conditions.
- */
 @Entity
 @Table(name = "outbox_events")
 public class OutboxEvent {
@@ -38,7 +33,6 @@ public class OutboxEvent {
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
-    // Protected no-args constructor required by JPA
     protected OutboxEvent() {}
 
     public OutboxEvent(String aggregateId, String aggregateType, String type, String payload) {
@@ -49,7 +43,6 @@ public class OutboxEvent {
         this.payload = payload;
     }
 
-    // Getters and Setters
     public UUID getId() {
         return id;
     }

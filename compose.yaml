@@ -1,32 +1,25 @@
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:18.3-alpine
-    # ports:
-    #   - "5432:5432"
     environment:
       POSTGRES_USER: green_user
       POSTGRES_PASSWORD: green_password
       POSTGRES_DB: task_engine
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Automatically run our init.sql on first boot
       - ./infra/db-init/init.sql:/docker-entrypoint-initdb.d/init.sql
-      # Mount PostgreSQL configuration for CDC (logical replication)
       - ./infra/db-init/postgresql.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U green_user -d task_engine || exit 1"]
+      test: [ "CMD-SHELL", "pg_isready -h localhost -p 5432 -U green_user -d task_engine || exit 1" ]
     networks:
       - task_network
     restart: unless-stopped
 
-  # RabbitMQ Message Broker (with Management UI)
   rabbitmq:
     image: rabbitmq:4.2-management-alpine
     ports:
-      # - "5672:5672" # AMQP protocol port
-      - "15672:15672" # Management UI port
+      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: green_user
       RABBITMQ_DEFAULT_PASS: green_password
@@ -35,12 +28,11 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
     healthcheck:
-      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping || exit 1"]
+      test: [ "CMD-SHELL", "rabbitmq-diagnostics -q ping || exit 1" ]
     networks:
       - task_network
     restart: unless-stopped
 
-  # Debezium Server (CDC Connector)
   debezium:
     image: quay.io/debezium/server:3.4
     volumes:
@@ -52,22 +44,19 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/q/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/q/health || exit 1" ]
     networks:
       - task_network
     restart: unless-stopped
 
   redis:
     image: redis:8.6-alpine
-    # ports:
-    #   - "6379:6379"
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
+      test: [ "CMD-SHELL", "redis-cli ping || exit 1" ]
     networks:
       - task_network
     restart: unless-stopped
 
-  # Jaeger Tracing (OpenTelemetry Collector)
   jaeger:
     # image: jaegertracing/jaeger:latest
     build:
@@ -77,15 +66,12 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
     ports:
       - "16686:16686"
-      # - "4317:4317" # OTLP gRPC port for receiving traces
-      # - "4318:4318" # OTLP HTTP port for receiving traces
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:13133/status || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:13133/status || exit 1" ]
     networks:
       - task_network
     restart: unless-stopped
 
-  # Go Worker Node (Consumes messages from RabbitMQ)
   worker-node:
     build:
       context: ./worker-node
@@ -120,7 +106,6 @@ services:
       - task_network
     restart: unless-stopped
 
-  # API Gateway (Spring Boot)
   api-gateway:
     build:
       context: ./api-gateway
@@ -151,6 +136,7 @@ volumes:
   postgres_data:
   rabbitmq_data:
   debezium_data:
+
 
 networks:
   task_network:

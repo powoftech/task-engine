@@ -35,7 +35,6 @@ type Processor struct {
 	tracer  trace.Tracer
 }
 
-// New initializes the RabbitMQ connection and injects dependencies
 func New(database *db.Database, redisCache *cache.Cache) (*Processor, error) {
 	host := getEnv("MQ_HOST", "localhost")
 	port := getEnv("MQ_PORT", "5672")
@@ -57,9 +56,9 @@ func New(database *db.Database, redisCache *cache.Cache) (*Processor, error) {
 	concurrency, _ := strconv.Atoi(concurrencyStr)
 
 	err = ch.Qos(
-		concurrency, // prefetch count
-		0,           // prefetch size
-		false,       // global
+		concurrency,
+		0,
+		false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set QoS: %w", err)
@@ -77,13 +76,13 @@ func New(database *db.Database, redisCache *cache.Cache) (*Processor, error) {
 
 func (p *Processor) Start() error {
 	msgs, err := p.channel.Consume(
-		"worker.jobs.queue", // queue
-		"",                  // consumer
-		false,               // auto-ack (MUST BE FALSE for reliability)
-		false,               // exclusive
-		false,               // no-local
-		false,               // no-wait
-		nil,                 // args
+		"worker.jobs.queue",
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to register a consumer: %w", err)
@@ -118,21 +117,19 @@ func (p *Processor) processMessage(d amqp.Delivery) {
 
 	log.Printf("Received Job [%s] Type: %s", job.JobID, job.TaskType)
 
-	// Reconstruct the OpenTelemetry Context from the payload's TraceID
 	ctx := context.Background()
 	if job.TraceID != "" && job.TraceID != "no-trace-id" {
 		if traceID, err := trace.TraceIDFromHex(job.TraceID); err == nil {
 			spanContext := trace.NewSpanContext(trace.SpanContextConfig{
 				TraceID:    traceID,
-				SpanID:     trace.SpanID{}, // Will generate a new SpanID for this worker step
+				SpanID:     trace.SpanID{},
 				TraceFlags: trace.FlagsSampled,
-				Remote:     true, // Indicates this context came from another service
+				Remote:     true,
 			})
 			ctx = trace.ContextWithSpanContext(ctx, spanContext)
 		}
 	}
 
-	// Start a new span linked to the Spring Boot parent trace
 	ctx, span := p.tracer.Start(ctx, "worker.process_job")
 	span.SetAttributes(attribute.String("job.id", job.JobID))
 	span.SetAttributes(attribute.String("job.task_type", job.TaskType))
@@ -141,7 +138,6 @@ func (p *Processor) processMessage(d amqp.Delivery) {
 	cacheCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// 1. Enforce Idempotency via Redis
 	acquired, err := p.cache.ClaimJob(cacheCtx, job.JobID)
 	if err != nil || !acquired {
 		span.AddEvent("job_already_claimed_or_cache_error")
@@ -149,13 +145,11 @@ func (p *Processor) processMessage(d amqp.Delivery) {
 		return
 	}
 
-	// 2. Simulate AI Workload
 	log.Printf("Processing Job [%s] with complexity %d...", job.JobID, job.Complexity)
 	span.AddEvent("starting_ai_simulation")
 	time.Sleep(time.Duration(job.Complexity) * time.Second)
 	span.AddEvent("completed_ai_simulation")
 
-	// 3. Mark as Completed (Single Write to DB)
 	mockResult := fmt.Sprintf(`{"status": "success", "processed_in_seconds": %d}`, job.Complexity)
 	if err := p.dbConn.CompleteJob(job.JobID, mockResult); err != nil {
 		log.Printf("Failed to update database for job [%s]: %v", job.JobID, err)

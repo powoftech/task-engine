@@ -21,7 +21,6 @@ provider "aws" {
   }
 }
 
-# Data source for latest Amazon Linux 2023 AMI
 data "aws_ami" "amazon_linux_2023" {
   most_recent = true
   owners      = ["amazon"]
@@ -37,7 +36,6 @@ data "aws_ami" "amazon_linux_2023" {
   }
 }
 
-# VPC Configuration
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
@@ -48,7 +46,6 @@ resource "aws_vpc" "main" {
   }
 }
 
-# Internet Gateway
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -57,7 +54,6 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
-# Public Subnet
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = var.public_subnet_cidr
@@ -69,7 +65,6 @@ resource "aws_subnet" "public" {
   }
 }
 
-# Route Table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -83,19 +78,16 @@ resource "aws_route_table" "public" {
   }
 }
 
-# Route Table Association
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
 }
 
-# Security Group for Infrastructure Instance
 resource "aws_security_group" "infrastructure" {
   name        = "${var.project_name}-infrastructure-sg"
   description = "Security group for infrastructure EC2 instance"
   vpc_id      = aws_vpc.main.id
 
-  # SSH access
   ingress {
     from_port   = 22
     to_port     = 22
@@ -104,7 +96,6 @@ resource "aws_security_group" "infrastructure" {
     description = "SSH access"
   }
 
-  # API Gateway port
   ingress {
     from_port   = 8080
     to_port     = 8080
@@ -113,16 +104,7 @@ resource "aws_security_group" "infrastructure" {
     description = "API Gateway HTTP"
   }
 
-  #   # PostgreSQL (internal only, from load test instance)
-  #   ingress {
-  #     from_port       = 5432
-  #     to_port         = 5432
-  #     protocol        = "tcp"
-  #     security_groups = [aws_security_group.loadtest.id]
-  #     description     = "PostgreSQL access from load test instance"
-  #   }
 
-  # RabbitMQ Management UI
   ingress {
     from_port   = 15672
     to_port     = 15672
@@ -131,16 +113,7 @@ resource "aws_security_group" "infrastructure" {
     description = "RabbitMQ Management UI"
   }
 
-  #   # RabbitMQ AMQP
-  #   ingress {
-  #     from_port   = 5672
-  #     to_port     = 5672
-  #     protocol    = "tcp"
-  #     cidr_blocks = [var.vpc_cidr]
-  #     description = "RabbitMQ AMQP"
-  #   }
 
-  # Jaeger UI
   ingress {
     from_port   = 16686
     to_port     = 16686
@@ -149,7 +122,6 @@ resource "aws_security_group" "infrastructure" {
     description = "Jaeger UI"
   }
 
-  # Allow all outbound traffic
   egress {
     from_port   = 0
     to_port     = 0
@@ -163,13 +135,11 @@ resource "aws_security_group" "infrastructure" {
   }
 }
 
-# Security Group for Load Test Instance
 resource "aws_security_group" "loadtest" {
   name        = "${var.project_name}-loadtest-sg"
   description = "Security group for load test EC2 instance"
   vpc_id      = aws_vpc.main.id
 
-  # SSH access
   ingress {
     from_port   = 22
     to_port     = 22
@@ -178,7 +148,6 @@ resource "aws_security_group" "loadtest" {
     description = "SSH access"
   }
 
-  # Allow all outbound traffic
   egress {
     from_port   = 0
     to_port     = 0
@@ -192,7 +161,6 @@ resource "aws_security_group" "loadtest" {
   }
 }
 
-# IAM Role for EC2 instances
 resource "aws_iam_role" "ec2_role" {
   name = "${var.project_name}-ec2-role"
 
@@ -214,19 +182,16 @@ resource "aws_iam_role" "ec2_role" {
   }
 }
 
-# Attach CloudWatch policy for logging
 resource "aws_iam_role_policy_attachment" "cloudwatch_logs" {
   role       = aws_iam_role.ec2_role.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
-# IAM Instance Profile
 resource "aws_iam_instance_profile" "ec2_profile" {
   name = "${var.project_name}-ec2-profile"
   role = aws_iam_role.ec2_role.name
 }
 
-# Infrastructure EC2 Instance
 resource "aws_instance" "infrastructure" {
   ami                    = data.aws_ami.amazon_linux_2023.id
   instance_type          = var.infrastructure_instance_type
@@ -254,7 +219,6 @@ resource "aws_instance" "infrastructure" {
   }
 }
 
-# Load Test EC2 Instance
 resource "aws_instance" "loadtest" {
   ami                    = data.aws_ami.amazon_linux_2023.id
   instance_type          = var.loadtest_instance_type
@@ -284,7 +248,6 @@ resource "aws_instance" "loadtest" {
   }
 }
 
-# Elastic IP for Infrastructure Instance (optional, but recommended for stable access)
 resource "aws_eip" "infrastructure" {
   instance = aws_instance.infrastructure.id
   domain   = "vpc"
@@ -296,7 +259,6 @@ resource "aws_eip" "infrastructure" {
   depends_on = [aws_internet_gateway.main]
 }
 
-# Elastic IP for Load Test Instance
 resource "aws_eip" "loadtest" {
   instance = aws_instance.loadtest.id
   domain   = "vpc"
