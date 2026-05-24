@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: green_password
       POSTGRES_DB: task_engine
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
       - ./infra/db-init/init.sql:/docker-entrypoint-initdb.d/init.sql
       - ./infra/db-init/postgresql.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
