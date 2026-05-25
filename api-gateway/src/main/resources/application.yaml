@@ -6,9 +6,9 @@ spring:
     name: api-gateway
 
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:5432/${DB_NAME:task_engine}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:task_engine}
     username: ${DB_USER:green_user}
-    password: ${DB_PASSWORD:green_password}
+    password: ${DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       pool-name: HikariCP
@@ -36,7 +36,7 @@ spring:
     host: ${MQ_HOST:localhost}
     port: ${MQ_PORT:5672}
     username: ${MQ_USER:green_user}
-    password: ${MQ_PASSWORD:green_password}
+    password: ${MQ_PASSWORD:}
     ssl:
       enabled: ${MQ_SSL_ENABLED:false}
     listener:
@@ -61,7 +61,7 @@ management:
           endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
   tracing:
     sampling:
-      probability: 1.0 # Sample all requests for tracing
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
   logging:
     export:
       otlp:
@@ -74,3 +74,8 @@ management:
 task-engine:
   rabbitmq:
     results-queue: api.job-results.queue
+  outbox:
+    cleanup:
+      enabled: ${OUTBOX_CLEANUP_ENABLED:true}
+      retention: ${OUTBOX_CLEANUP_RETENTION:PT24H}
+      fixed-delay: ${OUTBOX_CLEANUP_FIXED_DELAY:PT1H}

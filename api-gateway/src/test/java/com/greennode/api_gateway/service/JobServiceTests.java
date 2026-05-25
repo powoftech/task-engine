@@ -11,6 +11,7 @@ import com.greennode.api_gateway.dto.JobResponse;
 import com.greennode.api_gateway.entity.Job;
 import com.greennode.api_gateway.entity.JobStatus;
 import com.greennode.api_gateway.entity.OutboxEvent;
+import com.greennode.api_gateway.messaging.EventContractValidator;
 import com.greennode.api_gateway.messaging.EventEnvelope;
 import com.greennode.api_gateway.messaging.EventTypes;
 import com.greennode.api_gateway.messaging.JobCompletedPayload;
@@ -37,11 +38,13 @@ class JobServiceTests {
       Mockito.mock(ProcessedEventRepository.class);
   private final Tracer tracer = Mockito.mock(Tracer.class);
   private final JsonMapper jsonMapper = JsonMapper.builder().build();
+  private final EventContractValidator contractValidator = new EventContractValidator(jsonMapper);
   private final JobService service =
       new JobService(
           jobRepository,
           outboxEventRepository,
           processedEventRepository,
+          contractValidator,
           jsonMapper,
           tracer,
           new SimpleMeterRegistry());
@@ -54,11 +57,12 @@ class JobServiceTests {
     request.setClientRequestId("client-1");
 
     when(jobRepository.findByClientRequestId("client-1")).thenReturn(Optional.empty());
-    when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    when(jobRepository.saveAndFlush(any(Job.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
     when(outboxEventRepository.save(any(OutboxEvent.class)))
         .thenAnswer(invocation -> invocation.getArgument(0));
 
-    JobResponse response = service.submitJob(request);
+    JobResponse response = service.submitJob(request).response();
 
     assertThat(response.getStatus()).isEqualTo(JobStatus.QUEUED);
     assertThat(response.getTaskType()).isEqualTo("matrix_multiplication");
@@ -75,7 +79,7 @@ class JobServiceTests {
     String eventJson = completedEventJson(eventId, UUID.randomUUID());
     when(processedEventRepository.existsById(eventId)).thenReturn(true);
 
-    assertThat(service.applyResultEvent(eventJson)).isTrue();
+    assertThat(service.applyWorkerEvent(eventJson)).isTrue();
 
     verify(jobRepository, never()).findById(any());
   }
@@ -88,10 +92,9 @@ class JobServiceTests {
     when(processedEventRepository.existsById(eventId)).thenReturn(false);
     when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
 
-    assertThat(service.applyResultEvent(completedEventJson(eventId, jobId))).isTrue();
+    assertThat(service.applyWorkerEvent(completedEventJson(eventId, jobId))).isTrue();
 
-    assertThat(job.getStatus()).isEqualTo(JobStatus.COMPLETED);
-    assertThat(job.getResult()).contains("\"status\":\"success\"");
+    verify(jobRepository).markCompleted(jobId, "{\"status\":\"success\"}");
   }
 
   private String completedEventJson(UUID eventId, UUID jobId) throws Exception {

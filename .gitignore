@@ -1,4 +1,5 @@
 .vscode/
+.env
 
 go-cache/
 go-tmp/

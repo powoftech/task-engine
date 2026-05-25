@@ -1,23 +1,6 @@
 {
   "rabbit_version": "4.2.5",
   "rabbitmq_version": "4.2.5",
-  "users": [
-    {
-      "name": "green_user",
-      "password": "green_password",
-      "tags": ["administrator"],
-      "limits": {}
-    }
-  ],
-  "permissions": [
-    {
-      "user": "green_user",
-      "vhost": "/",
-      "configure": ".*",
-      "write": ".*",
-      "read": ".*"
-    }
-  ],
   "vhosts": [
     {
       "name": "/",
@@ -49,7 +32,43 @@
       "arguments": {}
     },
     {
+      "name": "worker.commands.retry",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "worker.commands.retry.return",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
       "name": "worker.commands.dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "worker.results.retry",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "worker.results.retry.return",
       "vhost": "/",
       "type": "direct",
       "durable": true,
@@ -74,9 +93,43 @@
       "durable": true,
       "auto_delete": false,
       "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "worker.jobs.retry.1",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
         "x-queue-type": "classic",
-        "x-dead-letter-exchange": "worker.commands.dlx",
-        "x-dead-letter-routing-key": "worker.jobs.failed"
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "worker.commands.retry.return",
+        "x-dead-letter-routing-key": "worker.jobs.retry.return"
+      }
+    },
+    {
+      "name": "worker.jobs.retry.2",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 15000,
+        "x-dead-letter-exchange": "worker.commands.retry.return",
+        "x-dead-letter-routing-key": "worker.jobs.retry.return"
+      }
+    },
+    {
+      "name": "worker.jobs.retry.3",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "worker.commands.retry.return",
+        "x-dead-letter-routing-key": "worker.jobs.retry.return"
       }
     },
     {
@@ -94,9 +147,43 @@
       "durable": true,
       "auto_delete": false,
       "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "api.job-results.retry.1",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
         "x-queue-type": "classic",
-        "x-dead-letter-exchange": "worker.results.dlx",
-        "x-dead-letter-routing-key": "api.job-results.failed"
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "worker.results.retry.return",
+        "x-dead-letter-routing-key": "api.job-results.retry.return"
+      }
+    },
+    {
+      "name": "api.job-results.retry.2",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 15000,
+        "x-dead-letter-exchange": "worker.results.retry.return",
+        "x-dead-letter-routing-key": "api.job-results.retry.return"
+      }
+    },
+    {
+      "name": "api.job-results.retry.3",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "worker.results.retry.return",
+        "x-dead-letter-routing-key": "api.job-results.retry.return"
       }
     },
     {
@@ -119,6 +206,54 @@
       "arguments": {}
     },
     {
+      "source": "worker.commands.retry",
+      "vhost": "/",
+      "destination": "worker.jobs.retry.1",
+      "destination_type": "queue",
+      "routing_key": "worker.jobs.retry.1",
+      "arguments": {}
+    },
+    {
+      "source": "worker.commands.retry",
+      "vhost": "/",
+      "destination": "worker.jobs.retry.2",
+      "destination_type": "queue",
+      "routing_key": "worker.jobs.retry.2",
+      "arguments": {}
+    },
+    {
+      "source": "worker.commands.retry",
+      "vhost": "/",
+      "destination": "worker.jobs.retry.3",
+      "destination_type": "queue",
+      "routing_key": "worker.jobs.retry.3",
+      "arguments": {}
+    },
+    {
+      "source": "worker.commands.retry.return",
+      "vhost": "/",
+      "destination": "worker.jobs.queue",
+      "destination_type": "queue",
+      "routing_key": "worker.jobs.retry.return",
+      "arguments": {}
+    },
+    {
+      "source": "worker.commands.dlx",
+      "vhost": "/",
+      "destination": "worker.jobs.dlq",
+      "destination_type": "queue",
+      "routing_key": "worker.jobs.failed",
+      "arguments": {}
+    },
+    {
+      "source": "worker.results",
+      "vhost": "/",
+      "destination": "api.job-results.queue",
+      "destination_type": "queue",
+      "routing_key": "job.processing.v1",
+      "arguments": {}
+    },
+    {
       "source": "worker.results",
       "vhost": "/",
       "destination": "api.job-results.queue",
@@ -135,11 +270,35 @@
       "arguments": {}
     },
     {
-      "source": "worker.commands.dlx",
+      "source": "worker.results.retry",
       "vhost": "/",
-      "destination": "worker.jobs.dlq",
+      "destination": "api.job-results.retry.1",
       "destination_type": "queue",
-      "routing_key": "worker.jobs.failed",
+      "routing_key": "api.job-results.retry.1",
+      "arguments": {}
+    },
+    {
+      "source": "worker.results.retry",
+      "vhost": "/",
+      "destination": "api.job-results.retry.2",
+      "destination_type": "queue",
+      "routing_key": "api.job-results.retry.2",
+      "arguments": {}
+    },
+    {
+      "source": "worker.results.retry",
+      "vhost": "/",
+      "destination": "api.job-results.retry.3",
+      "destination_type": "queue",
+      "routing_key": "api.job-results.retry.3",
+      "arguments": {}
+    },
+    {
+      "source": "worker.results.retry.return",
+      "vhost": "/",
+      "destination": "api.job-results.queue",
+      "destination_type": "queue",
+      "routing_key": "api.job-results.retry.return",
       "arguments": {}
     },
     {

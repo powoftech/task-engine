@@ -22,21 +22,30 @@ import (
 )
 
 const (
-	jobRequested = "job.requested.v1"
-	jobCompleted = "job.completed.v1"
-	jobFailed    = "job.failed.v1"
+	jobRequested  = "job.requested.v1"
+	jobProcessing = "job.processing.v1"
+	jobCompleted  = "job.completed.v1"
+	jobFailed     = "job.failed.v1"
 
-	commandQueue   = "worker.jobs.queue"
-	resultExchange = "worker.results"
-	schemaVersion  = 1
+	commandQueue                 = "worker.jobs.queue"
+	commandRetryExchange         = "worker.commands.retry"
+	commandRetryRoutingKeyPrefix = "worker.jobs.retry."
+	commandDeadLetterExchange    = "worker.commands.dlx"
+	commandDeadLetterRoutingKey  = "worker.jobs.failed"
+	resultExchange               = "worker.results"
+	schemaVersion                = 1
+	maxAttempts                  = 3
+	attemptHeader                = "x-task-engine-attempt"
 )
 
 var (
-	metricConsumed  = expvar.NewInt("task_engine_worker_events_consumed_total")
-	metricCompleted = expvar.NewInt("task_engine_worker_jobs_completed_total")
-	metricFailed    = expvar.NewInt("task_engine_worker_jobs_failed_total")
-	metricRejected  = expvar.NewInt("task_engine_worker_events_rejected_total")
-	metricPublished = expvar.NewInt("task_engine_worker_results_published_total")
+	metricConsumed     = expvar.NewInt("task_engine_worker_events_consumed_total")
+	metricCompleted    = expvar.NewInt("task_engine_worker_jobs_completed_total")
+	metricFailed       = expvar.NewInt("task_engine_worker_jobs_failed_total")
+	metricRejected     = expvar.NewInt("task_engine_worker_events_rejected_total")
+	metricPublished    = expvar.NewInt("task_engine_worker_results_published_total")
+	metricRetried      = expvar.NewInt("task_engine_worker_events_retried_total")
+	metricDeadLettered = expvar.NewInt("task_engine_worker_events_dead_lettered_total")
 )
 
 type EventEnvelope struct {
@@ -54,6 +63,11 @@ type JobRequestedPayload struct {
 	JobID      string `json:"jobId"`
 	TaskType   string `json:"taskType"`
 	Complexity int    `json:"complexity"`
+}
+
+type JobProcessingPayload struct {
+	JobID     string `json:"jobId"`
+	StartedAt string `json:"startedAt"`
 }
 
 type JobCompletedPayload struct {
@@ -82,7 +96,7 @@ func New() (*Processor, error) {
 	host := getEnv("MQ_HOST", "localhost")
 	port := getEnv("MQ_PORT", "5672")
 	user := getEnv("MQ_USER", "green_user")
-	pass := getEnv("MQ_PASSWORD", "green_password")
+	pass := getEnv("MQ_PASSWORD", "")
 	scheme := getEnv("MQ_SCHEME", "amqp")
 
 	url := fmt.Sprintf("%s://%s:%s@%s:%s/", scheme, user, pass, host, port)
@@ -167,8 +181,13 @@ func (p *Processor) processMessage(d amqp.Delivery) {
 	envelope, payload, err := decodeJobRequested(d.Body)
 	if err != nil {
 		metricRejected.Add(1)
-		log.Printf("Rejecting invalid command: %v", err)
-		_ = d.Nack(false, false)
+		log.Printf("Dead-lettering invalid command: %v", err)
+		if err := p.deadLetterCommand(context.Background(), d); err != nil {
+			log.Printf("Failed to dead-letter invalid command: %v", err)
+			_ = d.Nack(false, true)
+			return
+		}
+		_ = d.Ack(false)
 		return
 	}
 
@@ -185,6 +204,27 @@ func (p *Processor) processMessage(d amqp.Delivery) {
 	defer span.End()
 
 	log.Printf("Processing job [%s] type [%s]", payload.JobID, payload.TaskType)
+	processing := EventEnvelope{
+		EventID:       newUUID(),
+		EventType:     jobProcessing,
+		SchemaVersion: schemaVersion,
+		OccurredAt:    time.Now().UTC(),
+		Traceparent:   envelope.Traceparent,
+		CorrelationID: envelope.CorrelationID,
+		CausationID:   envelope.EventID,
+		Payload: mustMarshal(JobProcessingPayload{
+			JobID:     payload.JobID,
+			StartedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		}),
+	}
+	if err := p.publishWithRetry(ctx, processing); err != nil {
+		metricFailed.Add(1)
+		span.RecordError(err)
+		log.Printf("Failed to publish processing event for job [%s]: %v", payload.JobID, err)
+		p.retryOrDeadLetterCommand(ctx, d)
+		return
+	}
+
 	if payload.TaskType == "force_failure" {
 		result := EventEnvelope{
 			EventID:       newUUID(),
@@ -203,7 +243,7 @@ func (p *Processor) processMessage(d amqp.Delivery) {
 		if err := p.publishWithRetry(ctx, result); err != nil {
 			metricFailed.Add(1)
 			span.RecordError(err)
-			_ = d.Nack(false, false)
+			p.retryOrDeadLetterCommand(ctx, d)
 			return
 		}
 		metricFailed.Add(1)
@@ -237,7 +277,7 @@ func (p *Processor) processMessage(d amqp.Delivery) {
 		metricFailed.Add(1)
 		span.RecordError(err)
 		log.Printf("Failed to publish result for job [%s]: %v", payload.JobID, err)
-		_ = d.Nack(false, false)
+		p.retryOrDeadLetterCommand(ctx, d)
 		return
 	}
 
@@ -264,6 +304,9 @@ func (p *Processor) publish(ctx context.Context, event EventEnvelope) error {
 	body, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+	if err := validateEventContract(body); err != nil {
+		return fmt.Errorf("result event failed contract validation: %w", err)
 	}
 
 	p.publishMu.Lock()
@@ -303,7 +346,143 @@ func (p *Processor) publish(ctx context.Context, event EventEnvelope) error {
 	}
 }
 
+func (p *Processor) retryOrDeadLetterCommand(ctx context.Context, d amqp.Delivery) {
+	nextAttempt := currentAttempt(d.Headers) + 1
+	if nextAttempt > maxAttempts {
+		if err := p.deadLetterCommand(ctx, d); err != nil {
+			log.Printf("Failed to dead-letter command: %v", err)
+			_ = d.Nack(false, true)
+			return
+		}
+		metricDeadLettered.Add(1)
+		_ = d.Ack(false)
+		return
+	}
+
+	if err := p.retryCommand(ctx, d, nextAttempt); err != nil {
+		log.Printf("Failed to schedule command retry: %v", err)
+		_ = d.Nack(false, true)
+		return
+	}
+	metricRetried.Add(1)
+	_ = d.Ack(false)
+}
+
+func (p *Processor) retryCommand(ctx context.Context, d amqp.Delivery, attempt int) error {
+	headers := copyHeaders(d.Headers)
+	headers[attemptHeader] = attempt
+	return p.publishRawWithConfirm(
+		ctx,
+		commandRetryExchange,
+		fmt.Sprintf("%s%d", commandRetryRoutingKeyPrefix, attempt),
+		d.Body,
+		headers,
+		d.ContentType,
+		d.MessageId,
+		d.CorrelationId,
+	)
+}
+
+func (p *Processor) deadLetterCommand(ctx context.Context, d amqp.Delivery) error {
+	headers := copyHeaders(d.Headers)
+	headers[attemptHeader] = currentAttempt(d.Headers)
+	return p.publishRawWithConfirm(
+		ctx,
+		commandDeadLetterExchange,
+		commandDeadLetterRoutingKey,
+		d.Body,
+		headers,
+		d.ContentType,
+		d.MessageId,
+		d.CorrelationId,
+	)
+}
+
+func (p *Processor) publishRawWithConfirm(
+	ctx context.Context,
+	exchange string,
+	routingKey string,
+	body []byte,
+	headers amqp.Table,
+	contentType string,
+	messageID string,
+	correlationID string,
+) error {
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	p.publishMu.Lock()
+	defer p.publishMu.Unlock()
+	err := p.publishChannel.PublishWithContext(
+		ctx,
+		exchange,
+		routingKey,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:   contentType,
+			DeliveryMode:  amqp.Persistent,
+			Timestamp:     time.Now().UTC(),
+			MessageId:     messageID,
+			CorrelationId: correlationID,
+			Headers:       headers,
+			Body:          body,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to publish command retry/dead-letter: %w", err)
+	}
+
+	select {
+	case confirmation, ok := <-p.publisherConfirms:
+		if !ok {
+			return errors.New("publisher confirm channel closed")
+		}
+		if !confirmation.Ack {
+			return errors.New("RabbitMQ negatively acknowledged command retry/dead-letter")
+		}
+		return nil
+	case <-time.After(5 * time.Second):
+		return errors.New("timed out waiting for publisher confirm")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func currentAttempt(headers amqp.Table) int {
+	if headers == nil {
+		return 0
+	}
+	switch value := headers[attemptHeader].(type) {
+	case int:
+		return value
+	case int32:
+		return int(value)
+	case int64:
+		return int(value)
+	case string:
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return 0
+		}
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func copyHeaders(headers amqp.Table) amqp.Table {
+	copy := amqp.Table{}
+	for key, value := range headers {
+		copy[key] = value
+	}
+	return copy
+}
+
 func decodeJobRequested(body []byte) (EventEnvelope, JobRequestedPayload, error) {
+	if err := validateEventContract(body); err != nil {
+		return EventEnvelope{}, JobRequestedPayload{}, err
+	}
 	var envelope EventEnvelope
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return envelope, JobRequestedPayload{}, fmt.Errorf("invalid envelope JSON: %w", err)

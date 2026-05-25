@@ -19,6 +19,11 @@ channels:
     messages:
       jobCompleted:
         $ref: '#/components/messages/JobCompleted'
+  jobProcessing:
+    address: job.processing.v1
+    messages:
+      jobProcessing:
+        $ref: '#/components/messages/JobProcessing'
   jobFailed:
     address: job.failed.v1
     messages:
@@ -37,12 +42,14 @@ operations:
     action: send
     channel:
       oneOf:
+        - $ref: '#/channels/jobProcessing'
         - $ref: '#/channels/jobCompleted'
         - $ref: '#/channels/jobFailed'
   consumeJobResult:
     action: receive
     channel:
       oneOf:
+        - $ref: '#/channels/jobProcessing'
         - $ref: '#/channels/jobCompleted'
         - $ref: '#/channels/jobFailed'
 components:
@@ -55,6 +62,10 @@ components:
       name: job.completed.v1
       payload:
         $ref: './events/job-completed.v1.schema.json'
+    JobProcessing:
+      name: job.processing.v1
+      payload:
+        $ref: './events/job-processing.v1.schema.json'
     JobFailed:
       name: job.failed.v1
       payload:
