@@ -16,6 +16,9 @@ public class OutboxEvent {
 
   @Id private UUID id;
 
+  @Column(name = "event_id", nullable = false, unique = true)
+  private UUID eventId;
+
   @Column(name = "aggregate_id", nullable = false, length = 255)
   private String aggregateId;
 
@@ -35,8 +38,10 @@ public class OutboxEvent {
 
   protected OutboxEvent() {}
 
-  public OutboxEvent(String aggregateId, String aggregateType, String type, String payload) {
+  public OutboxEvent(
+      UUID eventId, String aggregateId, String aggregateType, String type, String payload) {
     this.id = UUID.randomUUID();
+    this.eventId = eventId;
     this.aggregateId = aggregateId;
     this.aggregateType = aggregateType;
     this.type = type;
@@ -49,6 +54,14 @@ public class OutboxEvent {
 
   public void setId(UUID id) {
     this.id = id;
+  }
+
+  public UUID getEventId() {
+    return eventId;
+  }
+
+  public void setEventId(UUID eventId) {
+    this.eventId = eventId;
   }
 
   public String getAggregateId() {

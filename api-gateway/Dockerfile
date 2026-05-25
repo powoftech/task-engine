@@ -15,7 +15,9 @@ COPY --from=builder /app/target/*.jar app.jar
 
 EXPOSE 8080
 
-RUN addgroup -S gatewaygroup && adduser -S gatewayuser -G gatewaygroup
+RUN apk add --no-cache curl \
+    && addgroup -S gatewaygroup \
+    && adduser -S gatewayuser -G gatewaygroup
 USER gatewayuser
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

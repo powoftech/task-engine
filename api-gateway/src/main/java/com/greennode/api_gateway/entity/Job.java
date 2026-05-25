@@ -24,6 +24,9 @@ public class Job {
   @Column(name = "task_type", nullable = false)
   private String taskType;
 
+  @Column(nullable = false)
+  private Integer complexity;
+
   @Enumerated(EnumType.STRING)
   @Column(columnDefinition = "job_status", nullable = false)
   @JdbcType(PostgreSQLEnumJdbcType.class)
@@ -32,6 +35,15 @@ public class Job {
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(columnDefinition = "jsonb")
   private String result;
+
+  @Column(name = "failure_message")
+  private String failureMessage;
+
+  @Column(name = "client_request_id", length = 128, unique = true)
+  private String clientRequestId;
+
+  @Column(name = "correlation_id", nullable = false)
+  private UUID correlationId;
 
   @CreationTimestamp
   @Column(name = "created_at", updatable = false)
@@ -43,10 +55,19 @@ public class Job {
 
   protected Job() {}
 
-  public Job(UUID id, String taskType, JobStatus status) {
+  public Job(
+      UUID id,
+      String taskType,
+      Integer complexity,
+      JobStatus status,
+      String clientRequestId,
+      UUID correlationId) {
     this.id = id;
     this.taskType = taskType;
+    this.complexity = complexity;
     this.status = status;
+    this.clientRequestId = clientRequestId;
+    this.correlationId = correlationId;
   }
 
   public UUID getId() {
@@ -65,6 +86,14 @@ public class Job {
     this.taskType = taskType;
   }
 
+  public Integer getComplexity() {
+    return complexity;
+  }
+
+  public void setComplexity(Integer complexity) {
+    this.complexity = complexity;
+  }
+
   public JobStatus getStatus() {
     return status;
   }
@@ -79,6 +108,30 @@ public class Job {
 
   public void setResult(String result) {
     this.result = result;
+  }
+
+  public String getFailureMessage() {
+    return failureMessage;
+  }
+
+  public void setFailureMessage(String failureMessage) {
+    this.failureMessage = failureMessage;
+  }
+
+  public String getClientRequestId() {
+    return clientRequestId;
+  }
+
+  public void setClientRequestId(String clientRequestId) {
+    this.clientRequestId = clientRequestId;
+  }
+
+  public UUID getCorrelationId() {
+    return correlationId;
+  }
+
+  public void setCorrelationId(UUID correlationId) {
+    this.correlationId = correlationId;
   }
 
   public Instant getCreatedAt() {

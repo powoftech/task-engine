@@ -1,21 +1,18 @@
-package com.greennode.api_gateway.dto;
+package com.greennode.api_gateway.messaging;
 
 import java.util.UUID;
 
-public class JobMessage {
-
+public class JobRequestedPayload {
   private UUID jobId;
   private String taskType;
   private Integer complexity;
-  private String traceId;
 
-  public JobMessage() {}
+  public JobRequestedPayload() {}
 
-  public JobMessage(UUID jobId, String taskType, Integer complexity, String traceId) {
+  public JobRequestedPayload(UUID jobId, String taskType, Integer complexity) {
     this.jobId = jobId;
     this.taskType = taskType;
     this.complexity = complexity;
-    this.traceId = traceId;
   }
 
   public UUID getJobId() {
@@ -40,13 +37,5 @@ public class JobMessage {
 
   public void setComplexity(Integer complexity) {
     this.complexity = complexity;
-  }
-
-  public String getTraceId() {
-    return traceId;
-  }
-
-  public void setTraceId(String traceId) {
-    this.traceId = traceId;
   }
 }

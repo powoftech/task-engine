@@ -1,7 +1,7 @@
 package com.greennode.api_gateway.controller;
 
 import com.greennode.api_gateway.dto.JobRequest;
-import com.greennode.api_gateway.entity.Job;
+import com.greennode.api_gateway.dto.JobResponse;
 import com.greennode.api_gateway.service.JobService;
 import jakarta.validation.Valid;
 import java.util.UUID;
@@ -24,13 +24,13 @@ public class JobController {
   }
 
   @PostMapping
-  public ResponseEntity<Job> createJob(@Valid @RequestBody JobRequest request) {
-    Job job = jobService.submitJob(request);
+  public ResponseEntity<JobResponse> createJob(@Valid @RequestBody JobRequest request) {
+    JobResponse job = jobService.submitJob(request);
     return ResponseEntity.accepted().body(job);
   }
 
   @GetMapping("/{jobId}")
-  public ResponseEntity<Job> getJob(@PathVariable UUID jobId) {
+  public ResponseEntity<JobResponse> getJob(@PathVariable UUID jobId) {
     return jobService
         .getJobStatus(jobId)
         .map(ResponseEntity::ok)

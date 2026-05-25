@@ -4,12 +4,20 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 public class JobRequest {
 
-  @NotBlank(message = "Task type cannot be empty") private String taskType;
+  @NotBlank(message = "Task type cannot be empty")
+  private String taskType;
 
-  @NotNull(message = "Complexity must be provided") @Min(value = 1, message = "Complexity must be at least 1") @Max(value = 10, message = "Complexity must not exceed 10") private Integer complexity;
+  @NotNull(message = "Complexity must be provided")
+  @Min(value = 1, message = "Complexity must be at least 1")
+  @Max(value = 10, message = "Complexity must not exceed 10")
+  private Integer complexity;
+
+  @Size(max = 128, message = "Client request id must not exceed 128 characters")
+  private String clientRequestId;
 
   public String getTaskType() {
     return taskType;
@@ -25,5 +33,13 @@ public class JobRequest {
 
   public void setComplexity(Integer complexity) {
     this.complexity = complexity;
+  }
+
+  public String getClientRequestId() {
+    return clientRequestId;
+  }
+
+  public void setClientRequestId(String clientRequestId) {
+    this.clientRequestId = clientRequestId;
   }
 }

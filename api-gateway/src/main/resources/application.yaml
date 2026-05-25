@@ -28,7 +28,32 @@ spring:
         type:
           "[json_format_mapper]": com.greennode.api_gateway.utilities.CustomHibernateJsonFormatter
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  rabbitmq:
+    host: ${MQ_HOST:localhost}
+    port: ${MQ_PORT:5672}
+    username: ${MQ_USER:green_user}
+    password: ${MQ_PASSWORD:green_password}
+    ssl:
+      enabled: ${MQ_SSL_ENABLED:false}
+    listener:
+      simple:
+        acknowledge-mode: manual
+        default-requeue-rejected: false
+        prefetch: 10
+
 management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
   opentelemetry:
     tracing:
       export:
@@ -45,3 +70,7 @@ management:
     metrics:
       export:
         enabled: false
+
+task-engine:
+  rabbitmq:
+    results-queue: api.job-results.queue
