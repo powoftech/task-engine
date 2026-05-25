@@ -7,23 +7,23 @@ import jakarta.validation.constraints.NotNull;
 
 public class JobRequest {
 
-    @NotBlank(message = "Task type cannot be empty") private String taskType;
+  @NotBlank(message = "Task type cannot be empty") private String taskType;
 
-    @NotNull(message = "Complexity must be provided") @Min(value = 1, message = "Complexity must be at least 1") @Max(value = 10, message = "Complexity must not exceed 10") private Integer complexity;
+  @NotNull(message = "Complexity must be provided") @Min(value = 1, message = "Complexity must be at least 1") @Max(value = 10, message = "Complexity must not exceed 10") private Integer complexity;
 
-    public String getTaskType() {
-        return taskType;
-    }
+  public String getTaskType() {
+    return taskType;
+  }
 
-    public void setTaskType(String taskType) {
-        this.taskType = taskType;
-    }
+  public void setTaskType(String taskType) {
+    this.taskType = taskType;
+  }
 
-    public Integer getComplexity() {
-        return complexity;
-    }
+  public Integer getComplexity() {
+    return complexity;
+  }
 
-    public void setComplexity(Integer complexity) {
-        this.complexity = complexity;
-    }
+  public void setComplexity(Integer complexity) {
+    this.complexity = complexity;
+  }
 }

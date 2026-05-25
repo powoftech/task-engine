@@ -20,64 +20,61 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public class JobService {
 
-    private static final Logger log = LoggerFactory.getLogger(JobService.class);
+  private static final Logger log = LoggerFactory.getLogger(JobService.class);
 
-    private final JobRepository jobRepository;
-    private final OutboxEventRepository outboxEventRepository;
-    private final JsonMapper jsonMapper;
-    private final Tracer tracer;
+  private final JobRepository jobRepository;
+  private final OutboxEventRepository outboxEventRepository;
+  private final JsonMapper jsonMapper;
+  private final Tracer tracer;
 
-    public JobService(
-            JobRepository jobRepository,
-            OutboxEventRepository outboxEventRepository,
-            JsonMapper jsonMapper,
-            Tracer tracer) {
-        this.jobRepository = jobRepository;
-        this.outboxEventRepository = outboxEventRepository;
-        this.jsonMapper = jsonMapper;
-        this.tracer = tracer;
+  public JobService(
+      JobRepository jobRepository,
+      OutboxEventRepository outboxEventRepository,
+      JsonMapper jsonMapper,
+      Tracer tracer) {
+    this.jobRepository = jobRepository;
+    this.outboxEventRepository = outboxEventRepository;
+    this.jsonMapper = jsonMapper;
+    this.tracer = tracer;
+  }
+
+  @Transactional
+  public Job submitJob(JobRequest request) {
+    UUID jobId = UUID.randomUUID();
+
+    String currentTraceId =
+        tracer.currentSpan() != null ? tracer.currentSpan().context().traceId() : "no-trace-id";
+
+    Job job = new Job(jobId, request.getTaskType(), JobStatus.PENDING);
+    job = jobRepository.save(job);
+    log.info(
+        "Persisted new job [{}] to database with status PENDING. TraceID: {}",
+        jobId,
+        currentTraceId);
+
+    try {
+      JobMessage message =
+          new JobMessage(jobId, request.getTaskType(), request.getComplexity(), currentTraceId);
+      String messageJson = jsonMapper.writeValueAsString(message);
+
+      OutboxEvent event =
+          new OutboxEvent(
+              jobId.toString(), // aggregate_id
+              "JOB", // aggregate_type
+              "JOB_CREATED", // type
+              messageJson // payload
+              );
+      outboxEventRepository.save(event);
+      log.info("Persisted outbox event [{}] for job [{}]", event.getId(), jobId);
+    } catch (JacksonException e) {
+      log.error("Failed to serialize JobMessage for job [{}]: {}", jobId, e.getMessage());
+      throw new RuntimeException("Failed to serialize job message", e);
     }
 
-    @Transactional
-    public Job submitJob(JobRequest request) {
-        UUID jobId = UUID.randomUUID();
+    return job;
+  }
 
-        String currentTraceId =
-                tracer.currentSpan() != null
-                        ? tracer.currentSpan().context().traceId()
-                        : "no-trace-id";
-
-        Job job = new Job(jobId, request.getTaskType(), JobStatus.PENDING);
-        job = jobRepository.save(job);
-        log.info(
-                "Persisted new job [{}] to database with status PENDING. TraceID: {}",
-                jobId,
-                currentTraceId);
-
-        try {
-            JobMessage message =
-                    new JobMessage(
-                            jobId, request.getTaskType(), request.getComplexity(), currentTraceId);
-            String messageJson = jsonMapper.writeValueAsString(message);
-
-            OutboxEvent event =
-                    new OutboxEvent(
-                            jobId.toString(), // aggregate_id
-                            "JOB", // aggregate_type
-                            "JOB_CREATED", // type
-                            messageJson // payload
-                            );
-            outboxEventRepository.save(event);
-            log.info("Persisted outbox event [{}] for job [{}]", event.getId(), jobId);
-        } catch (JacksonException e) {
-            log.error("Failed to serialize JobMessage for job [{}]: {}", jobId, e.getMessage());
-            throw new RuntimeException("Failed to serialize job message", e);
-        }
-
-        return job;
-    }
-
-    public Optional<Job> getJobStatus(UUID jobId) {
-        return jobRepository.findById(jobId);
-    }
+  public Optional<Job> getJobStatus(UUID jobId) {
+    return jobRepository.findById(jobId);
+  }
 }

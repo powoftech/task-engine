@@ -19,73 +19,73 @@ import org.hibernate.type.SqlTypes;
 @Table(name = "jobs")
 public class Job {
 
-    @Id private UUID id;
+  @Id private UUID id;
 
-    @Column(name = "task_type", nullable = false)
-    private String taskType;
+  @Column(name = "task_type", nullable = false)
+  private String taskType;
 
-    @Enumerated(EnumType.STRING)
-    @Column(columnDefinition = "job_status", nullable = false)
-    @JdbcType(PostgreSQLEnumJdbcType.class)
-    private JobStatus status;
+  @Enumerated(EnumType.STRING)
+  @Column(columnDefinition = "job_status", nullable = false)
+  @JdbcType(PostgreSQLEnumJdbcType.class)
+  private JobStatus status;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
-    private String result;
+  @JdbcTypeCode(SqlTypes.JSON)
+  @Column(columnDefinition = "jsonb")
+  private String result;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private Instant createdAt;
+  @CreationTimestamp
+  @Column(name = "created_at", updatable = false)
+  private Instant createdAt;
 
-    @UpdateTimestamp
-    @Column(name = "updated_at")
-    private Instant updatedAt;
+  @UpdateTimestamp
+  @Column(name = "updated_at")
+  private Instant updatedAt;
 
-    protected Job() {}
+  protected Job() {}
 
-    public Job(UUID id, String taskType, JobStatus status) {
-        this.id = id;
-        this.taskType = taskType;
-        this.status = status;
-    }
+  public Job(UUID id, String taskType, JobStatus status) {
+    this.id = id;
+    this.taskType = taskType;
+    this.status = status;
+  }
 
-    public UUID getId() {
-        return id;
-    }
+  public UUID getId() {
+    return id;
+  }
 
-    public void setId(UUID id) {
-        this.id = id;
-    }
+  public void setId(UUID id) {
+    this.id = id;
+  }
 
-    public String getTaskType() {
-        return taskType;
-    }
+  public String getTaskType() {
+    return taskType;
+  }
 
-    public void setTaskType(String taskType) {
-        this.taskType = taskType;
-    }
+  public void setTaskType(String taskType) {
+    this.taskType = taskType;
+  }
 
-    public JobStatus getStatus() {
-        return status;
-    }
+  public JobStatus getStatus() {
+    return status;
+  }
 
-    public void setStatus(JobStatus status) {
-        this.status = status;
-    }
+  public void setStatus(JobStatus status) {
+    this.status = status;
+  }
 
-    public String getResult() {
-        return result;
-    }
+  public String getResult() {
+    return result;
+  }
 
-    public void setResult(String result) {
-        this.result = result;
-    }
+  public void setResult(String result) {
+    this.result = result;
+  }
 
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
+  public Instant getCreatedAt() {
+    return createdAt;
+  }
 
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
+  public Instant getUpdatedAt() {
+    return updatedAt;
+  }
 }

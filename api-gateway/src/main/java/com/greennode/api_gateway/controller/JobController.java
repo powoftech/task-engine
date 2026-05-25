@@ -17,23 +17,23 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/jobs")
 public class JobController {
 
-    private final JobService jobService;
+  private final JobService jobService;
 
-    public JobController(JobService jobService) {
-        this.jobService = jobService;
-    }
+  public JobController(JobService jobService) {
+    this.jobService = jobService;
+  }
 
-    @PostMapping
-    public ResponseEntity<Job> createJob(@Valid @RequestBody JobRequest request) {
-        Job job = jobService.submitJob(request);
-        return ResponseEntity.accepted().body(job);
-    }
+  @PostMapping
+  public ResponseEntity<Job> createJob(@Valid @RequestBody JobRequest request) {
+    Job job = jobService.submitJob(request);
+    return ResponseEntity.accepted().body(job);
+  }
 
-    @GetMapping("/{jobId}")
-    public ResponseEntity<Job> getJob(@PathVariable UUID jobId) {
-        return jobService
-                .getJobStatus(jobId)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
+  @GetMapping("/{jobId}")
+  public ResponseEntity<Job> getJob(@PathVariable UUID jobId) {
+    return jobService
+        .getJobStatus(jobId)
+        .map(ResponseEntity::ok)
+        .orElse(ResponseEntity.notFound().build());
+  }
 }
