@@ -21,9 +21,8 @@
   "vhosts": [
     {
       "name": "/",
-      "description": "Default virtual host",
       "metadata": {
-        "description": "Default virtual host",
+        "description": "Default local vhost",
         "tags": [],
         "default_queue_type": "classic"
       },
@@ -39,11 +38,69 @@
       "auto_delete": false,
       "internal": false,
       "arguments": {}
+    },
+    {
+      "name": "worker.results",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "worker.commands.dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "worker.results.dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
     }
   ],
   "queues": [
     {
       "name": "worker.jobs.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-dead-letter-exchange": "worker.commands.dlx",
+        "x-dead-letter-routing-key": "worker.jobs.failed"
+      }
+    },
+    {
+      "name": "worker.jobs.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "api.job-results.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-dead-letter-exchange": "worker.results.dlx",
+        "x-dead-letter-routing-key": "api.job-results.failed"
+      }
+    },
+    {
+      "name": "api.job-results.dlq",
       "vhost": "/",
       "durable": true,
       "auto_delete": false,
@@ -58,7 +115,39 @@
       "vhost": "/",
       "destination": "worker.jobs.queue",
       "destination_type": "queue",
-      "routing_key": "task_engine.public.outbox_events",
+      "routing_key": "job.requested.v1",
+      "arguments": {}
+    },
+    {
+      "source": "worker.results",
+      "vhost": "/",
+      "destination": "api.job-results.queue",
+      "destination_type": "queue",
+      "routing_key": "job.completed.v1",
+      "arguments": {}
+    },
+    {
+      "source": "worker.results",
+      "vhost": "/",
+      "destination": "api.job-results.queue",
+      "destination_type": "queue",
+      "routing_key": "job.failed.v1",
+      "arguments": {}
+    },
+    {
+      "source": "worker.commands.dlx",
+      "vhost": "/",
+      "destination": "worker.jobs.dlq",
+      "destination_type": "queue",
+      "routing_key": "worker.jobs.failed",
+      "arguments": {}
+    },
+    {
+      "source": "worker.results.dlx",
+      "vhost": "/",
+      "destination": "api.job-results.dlq",
+      "destination_type": "queue",
+      "routing_key": "api.job-results.failed",
       "arguments": {}
     }
   ]

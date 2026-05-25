@@ -1,4 +1,4 @@
-FROM jaegertracing/jaeger:latest
+FROM jaegertracing/jaeger:2.10.0
 
 # Add `curl` for health checks
 USER root

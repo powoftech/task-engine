@@ -1,0 +1,61 @@
+asyncapi: 3.0.0
+info:
+  title: Task Engine Events
+  version: 1.0.0
+  description: Event contracts shared by the API service and worker service.
+defaultContentType: application/json
+servers:
+  localRabbitMq:
+    host: localhost:5672
+    protocol: amqp
+channels:
+  jobRequested:
+    address: job.requested.v1
+    messages:
+      jobRequested:
+        $ref: '#/components/messages/JobRequested'
+  jobCompleted:
+    address: job.completed.v1
+    messages:
+      jobCompleted:
+        $ref: '#/components/messages/JobCompleted'
+  jobFailed:
+    address: job.failed.v1
+    messages:
+      jobFailed:
+        $ref: '#/components/messages/JobFailed'
+operations:
+  publishJobRequested:
+    action: send
+    channel:
+      $ref: '#/channels/jobRequested'
+  consumeJobRequested:
+    action: receive
+    channel:
+      $ref: '#/channels/jobRequested'
+  publishJobResult:
+    action: send
+    channel:
+      oneOf:
+        - $ref: '#/channels/jobCompleted'
+        - $ref: '#/channels/jobFailed'
+  consumeJobResult:
+    action: receive
+    channel:
+      oneOf:
+        - $ref: '#/channels/jobCompleted'
+        - $ref: '#/channels/jobFailed'
+components:
+  messages:
+    JobRequested:
+      name: job.requested.v1
+      payload:
+        $ref: './events/job-requested.v1.schema.json'
+    JobCompleted:
+      name: job.completed.v1
+      payload:
+        $ref: './events/job-completed.v1.schema.json'
+    JobFailed:
+      name: job.failed.v1
+      payload:
+        $ref: './events/job-failed.v1.schema.json'

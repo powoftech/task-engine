@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greennode.local/contracts/events/job-completed.v1.schema.json",
+  "title": "JobCompletedV1",
+  "type": "object",
+  "required": [
+    "eventId",
+    "eventType",
+    "schemaVersion",
+    "occurredAt",
+    "traceparent",
+    "correlationId",
+    "causationId",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "job.completed.v1" },
+    "schemaVersion": { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceparent": { "type": "string", "minLength": 1 },
+    "correlationId": { "type": "string", "format": "uuid" },
+    "causationId": { "type": "string", "format": "uuid" },
+    "payload": {
+      "type": "object",
+      "required": ["jobId", "processedInSeconds", "result"],
+      "additionalProperties": false,
+      "properties": {
+        "jobId": { "type": "string", "format": "uuid" },
+        "processedInSeconds": { "type": "integer", "minimum": 0 },
+        "result": { "type": "object" }
+      }
+    }
+  }
+}

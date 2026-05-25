@@ -1,1 +1,4 @@
 .vscode/
+
+go-cache/
+go-tmp/

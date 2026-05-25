@@ -10,11 +10,11 @@ COPY internal ./internal
 
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o worker ./cmd/worker
 
-FROM alpine:latest
+FROM alpine:3.22
 
 WORKDIR /app
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates curl
 
 COPY --from=builder /app/worker .
 
