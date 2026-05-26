@@ -464,4 +464,4 @@ Questions can be asked through the repository issue tracker or directly in the p
 
 ## License
 
-Apache-2.0 (c) 2026 Phuong Dang. See [LICENSE](LICENSE).
+Apache-2.0 © 2026 Phuong Dang. See [LICENSE](LICENSE).
