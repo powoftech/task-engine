@@ -1,6 +1,9 @@
-# Task Engine _(task-engine)_
+# Task Engine
 
-A learning POC for reliable distributed task execution with Spring Boot, Go, PostgreSQL, Debezium, and RabbitMQ.
+[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg)](https://github.com/RichardLitt/standard-readme)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A learning PoC for reliable distributed task execution with Spring Boot, Go, PostgreSQL, Debezium, and RabbitMQ.
 
 Task Engine is a proof-of-concept system for studying how distributed services can coordinate asynchronous work without losing state or duplicating side effects. It accepts task requests over HTTP, stores job state in PostgreSQL, emits durable outbox events through Debezium, processes jobs in a Go worker through RabbitMQ, and applies worker result events back to the API service.
 
@@ -24,23 +27,23 @@ This repository is intentionally small enough to read end to end, but it include
 
 ## Security
 
-This project is a local POC. Do not deploy it to a public network without a security pass.
+This project is a local proof of concept. Do not deploy it to a public network without a security review.
 
-The sample configuration uses local service credentials, exposes the API on port `8080`, exposes RabbitMQ Management on port `15672`, and does not include authentication or authorization for the job API. Treat `.env` as local-only configuration, rotate any credentials before sharing an environment, and keep real secrets out of commits.
+The sample stack exposes an unauthenticated HTTP API on port `8080`, RabbitMQ Management on port `15672`, and local observability endpoints. The credentials in `.env.example` are for local development only. Keep real secrets out of commits, rotate any credentials before sharing an environment, and treat `.env` as machine-local configuration.
 
 ## Background
 
-The POC focuses on one common distributed-systems problem: accepting work synchronously while doing the actual processing asynchronously and reliably.
+The PoC focuses on a common distributed-systems problem: accepting work synchronously while doing the actual processing asynchronously and reliably.
 
-The system demonstrates these ideas:
+The system demonstrates:
 
-- Transactional outbox: the API persists a job and its `job.requested.v1` event in the same PostgreSQL transaction.
-- Change data capture: Debezium reads the `outbox_events` table and publishes command events to RabbitMQ.
-- Worker isolation: the Go worker consumes job commands, simulates work, and publishes result events.
+- Transactional outbox: the API stores a job and its `job.requested.v1` event in one PostgreSQL transaction.
+- Change data capture: Debezium reads the outbox table and publishes command events to RabbitMQ.
+- Worker isolation: the Go worker consumes commands, simulates work, and publishes result events.
 - Idempotency: callers can send `clientRequestId` to avoid creating duplicate jobs.
-- Event contracts: both Java and Go validate JSON event envelopes against shared schemas in [contracts/events](contracts/events).
-- Retry and dead-letter behavior: command and result queues include retry queues and DLQs for failed processing.
-- Observability: services expose health checks, metrics, and traces for local inspection.
+- Event contracts: Java and Go validate shared JSON event envelopes and payload schemas.
+- Retry and dead-letter handling: failed command processing can retry and eventually dead-letter.
+- Observability: services expose health checks, metrics, and OpenTelemetry traces.
 
 The implementation is intentionally polyglot:
 
@@ -50,16 +53,16 @@ The implementation is intentionally polyglot:
 
 ## Install
 
-The simplest way to run the POC is Docker Compose.
+The simplest way to run the full PoC is Docker Compose.
 
 Dependencies:
 
 - Docker with Docker Compose support
 - `curl` for shell examples
 - PowerShell 7+ if you use the Windows smoke script
-- Java 25 and Maven wrapper support for running API tests locally
+- Java 25 for running API tests locally
 - Go 1.26.1 for running worker tests locally
-- k6 if you want to run the optional load test
+- k6 for the optional load test
 
 Create local environment configuration:
 
@@ -73,7 +76,7 @@ On Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-Edit `.env` if you want different local passwords or worker concurrency. Then build and start the full stack:
+Edit `.env` if you want different local passwords or worker concurrency. Then build and start the stack:
 
 ```sh
 docker compose up --build -d
@@ -117,13 +120,13 @@ curl -i -X POST http://localhost:8080/api/v1/jobs \
   -d '{"taskType":"matrix_multiplication","complexity":3,"clientRequestId":"demo-001"}'
 ```
 
-Get a job by id:
+Get a job by ID:
 
 ```sh
 curl http://localhost:8080/api/v1/jobs/<job-id>
 ```
 
-List jobs:
+List and filter jobs:
 
 ```sh
 curl "http://localhost:8080/api/v1/jobs?size=20"
@@ -131,13 +134,13 @@ curl "http://localhost:8080/api/v1/jobs?status=COMPLETED"
 curl "http://localhost:8080/api/v1/jobs?clientRequestId=demo-001&size=1"
 ```
 
-Cancel a queued or processing job:
+Cancel a job:
 
 ```sh
 curl -X POST http://localhost:8080/api/v1/jobs/<job-id>/cancel
 ```
 
-Force a worker failure path:
+Force the worker failure path:
 
 ```sh
 curl -i -X POST http://localhost:8080/api/v1/jobs \
@@ -157,119 +160,96 @@ On Windows PowerShell:
 .\scripts\smoke.ps1
 ```
 
-The smoke test submits a job, verifies idempotent submission, waits for the `PROCESSING` and `COMPLETED` states, cancels another job, and checks that a late worker result does not overwrite `CANCELLED`.
+The smoke test submits a job, verifies idempotent submission, waits for `PROCESSING` and `COMPLETED`, cancels another job, and checks that a late worker result does not overwrite `CANCELLED`.
 
 ## Architecture
+
+```mermaid
+flowchart LR
+  client[Client] -->|POST /api/v1/jobs| api[API Gateway<br/>Spring Boot]
+  api -->|job state| db[(PostgreSQL)]
+  api -->|outbox event| outbox[(outbox_events)]
+  outbox -->|CDC| debezium[Debezium Server]
+  debezium -->|job.requested.v1| rabbit[(RabbitMQ)]
+  rabbit -->|worker.jobs.queue| worker[Worker Node<br/>Go]
+  worker -->|processing/completed/failed events| rabbit
+  rabbit -->|result events| api
+  api -->|status/result update| db
+  api -->|health, metrics, traces| obs[Local observability]
+  worker -->|health, metrics, traces| obs
+```
 
 Runtime flow:
 
 1. A client submits `POST /api/v1/jobs`.
-2. The API validates the request and stores a `QUEUED` job in PostgreSQL.
-3. In the same transaction, the API stores a `job.requested.v1` event in `outbox_events`.
-4. Debezium tails PostgreSQL changes and publishes the outbox event to the RabbitMQ `cdc.events` exchange.
-5. RabbitMQ routes `job.requested.v1` to `worker.jobs.queue`.
-6. The Go worker validates the event contract, publishes `job.processing.v1`, simulates work, and publishes either `job.completed.v1` or `job.failed.v1`.
-7. RabbitMQ routes worker result events to `api.job-results.queue`.
-8. The API result listener validates each result event, records processed event ids, and updates the job state idempotently.
-
-Main local services:
-
-- `postgres`: stores job state, outbox events, and processed result event ids.
-- `rabbitmq`: routes commands, results, retries, and dead letters.
-- `debezium`: turns outbox table changes into RabbitMQ messages.
-- `api-gateway`: exposes the HTTP API and applies worker results.
-- `worker-node`: consumes job commands and publishes worker events.
-- `jaeger`: receives and displays local traces.
-
-Important RabbitMQ routes:
-
-- `cdc.events` exchange with `job.requested.v1` routing key to `worker.jobs.queue`.
-- `worker.results` exchange with `job.processing.v1`, `job.completed.v1`, and `job.failed.v1` routing keys to `api.job-results.queue`.
-- `worker.commands.retry` and `worker.results.retry` for delayed retry queues.
-- `worker.commands.dlx` and `worker.results.dlx` for dead-letter queues.
+2. The API validates the request and stores a queued job in PostgreSQL.
+3. In the same transaction, the API stores a `job.requested.v1` event in the outbox.
+4. Debezium tails PostgreSQL changes and publishes the outbox event to RabbitMQ.
+5. The Go worker consumes the command, emits `job.processing.v1`, simulates work, and emits either `job.completed.v1` or `job.failed.v1`.
+6. The API consumes result events and updates the job record.
+7. Clients poll `GET /api/v1/jobs/{jobId}` or list jobs by status/client request ID.
 
 ## Configuration
 
-The stack reads local defaults from `compose.yaml` and optional overrides from `.env`.
+Local defaults live in [.env.example](.env.example). Copy it to `.env` before starting Docker Compose.
 
-Common environment variables:
+| Variable                       | Used by                         | Purpose                                  |
+| ------------------------------ | ------------------------------- | ---------------------------------------- |
+| `POSTGRES_USER`                | PostgreSQL, API, Debezium       | Local database user                      |
+| `POSTGRES_PASSWORD`            | PostgreSQL, API, Debezium       | Local database password                  |
+| `POSTGRES_DB`                  | PostgreSQL, API, Debezium       | Local database name                      |
+| `RABBITMQ_USER`                | RabbitMQ, API, worker, Debezium | Local broker user                        |
+| `RABBITMQ_PASSWORD`            | RabbitMQ, API, worker, Debezium | Local broker password                    |
+| `WORKER_CONCURRENCY`           | Worker                          | Number of concurrent message handlers    |
+| `TRACING_SAMPLING_PROBABILITY` | API                             | OpenTelemetry trace sampling probability |
 
-| Variable                       | Used by                         | Default                              | Purpose                                                 |
-| ------------------------------ | ------------------------------- | ------------------------------------ | ------------------------------------------------------- |
-| `POSTGRES_USER`                | PostgreSQL, API, Debezium       | `green_user`                         | PostgreSQL username                                     |
-| `POSTGRES_PASSWORD`            | PostgreSQL, API, Debezium       | `green_password` in Compose fallback | PostgreSQL password                                     |
-| `POSTGRES_DB`                  | PostgreSQL, API, Debezium       | `task_engine`                        | PostgreSQL database                                     |
-| `RABBITMQ_USER`                | RabbitMQ, API, worker, Debezium | `green_user`                         | RabbitMQ username                                       |
-| `RABBITMQ_PASSWORD`            | RabbitMQ, API, worker, Debezium | `green_password` in Compose fallback | RabbitMQ password                                       |
-| `WORKER_CONCURRENCY`           | worker                          | `10`                                 | Number of worker goroutines and RabbitMQ prefetch count |
-| `TRACING_SAMPLING_PROBABILITY` | API                             | `1.0`                                | Spring tracing sample probability                       |
+Published local ports:
 
-Useful local ports:
+| Port    | Service     | Purpose                               |
+| ------- | ----------- | ------------------------------------- |
+| `8080`  | API Gateway | Job API and Spring Actuator endpoints |
+| `8090`  | Worker Node | Worker health and metrics endpoints   |
+| `15672` | RabbitMQ    | RabbitMQ Management UI                |
+| `16686` | Jaeger      | Trace search UI                       |
 
-| Port    | Service                          | URL                      |
-| ------- | -------------------------------- | ------------------------ |
-| `8080`  | API Gateway                      | `http://localhost:8080`  |
-| `8090`  | Worker health and expvar metrics | `http://localhost:8090`  |
-| `15672` | RabbitMQ Management              | `http://localhost:15672` |
-| `16686` | Jaeger UI                        | `http://localhost:16686` |
+PostgreSQL, RabbitMQ AMQP, and Debezium communicate on the Compose network by default. The Compose file does not publish PostgreSQL or RabbitMQ AMQP ports to the host.
 
 ## Event Contracts
 
-The event catalog is documented in [contracts/asyncapi.yaml](contracts/asyncapi.yaml). Concrete JSON schemas live in [contracts/events](contracts/events).
+Event contracts are defined in [contracts/asyncapi.yaml](contracts/asyncapi.yaml) and the JSON schemas under [contracts/events](contracts/events).
 
-All events use a shared envelope:
+The current event types are:
 
-```json
-{
-  "eventId": "53fe2c29-98e1-407f-9a2e-8d6622e5f4db",
-  "eventType": "job.requested.v1",
-  "schemaVersion": 1,
-  "occurredAt": "2026-05-26T00:00:00Z",
-  "traceparent": "00-00000000000000000000000000000000-0000000000000000-00",
-  "correlationId": "e390ea57-8260-469c-8e94-91d17d57f8a1",
-  "causationId": "53fe2c29-98e1-407f-9a2e-8d6622e5f4db",
-  "payload": {}
-}
-```
+- `job.requested.v1`
+- `job.processing.v1`
+- `job.completed.v1`
+- `job.failed.v1`
 
-Current event types:
-
-- `job.requested.v1`: API to worker command created from the outbox.
-- `job.processing.v1`: worker to API event indicating work has started.
-- `job.completed.v1`: worker to API event with result payload.
-- `job.failed.v1`: worker to API event with error code and message.
-
-Both services validate the envelope and payload before applying behavior. Unknown event types, missing required fields, invalid UUIDs, invalid timestamps, invalid complexity values, and unexpected fields are rejected.
+Both services use the shared contract files to keep event envelopes and payloads consistent. The API validates outgoing and incoming events in Java, while the worker validates consumed command events and published result events in Go.
 
 ## Observability
 
-Health endpoints:
+API Gateway endpoints:
 
 ```sh
 curl http://localhost:8080/actuator/health/readiness
-curl http://localhost:8090/healthz
+curl http://localhost:8080/actuator/prometheus
+curl http://localhost:8080/actuator/metrics
 ```
 
-Metrics endpoints:
+Worker endpoints:
 
 ```sh
-curl http://localhost:8080/actuator/prometheus
+curl http://localhost:8090/healthz
 curl http://localhost:8090/metrics
 ```
 
-Trace UI:
+Local UIs:
 
-```text
-http://localhost:16686
-```
+- RabbitMQ Management: <http://localhost:15672>
+- Jaeger UI: <http://localhost:16686>
 
-RabbitMQ Management UI:
-
-```text
-http://localhost:15672
-```
-
-Use the RabbitMQ credentials from `.env`, or the Compose fallback credentials if you did not create `.env`.
+Use the RabbitMQ credentials from `.env`. Jaeger receives OpenTelemetry traces from the API over HTTP and from the worker over OTLP gRPC through the Compose network.
 
 ## Testing
 
@@ -280,7 +260,7 @@ cd api-gateway
 ./mvnw test
 ```
 
-On Windows:
+On Windows PowerShell:
 
 ```powershell
 cd api-gateway
@@ -294,84 +274,82 @@ cd worker-node
 go test ./...
 ```
 
-Run the full local smoke test:
+Run the end-to-end smoke test with the Compose stack already healthy:
 
 ```sh
-docker compose up --build -d
 ./scripts/smoke.sh
 ```
 
-Run the optional k6 load test:
+On Windows PowerShell:
+
+```powershell
+.\scripts\smoke.ps1
+```
+
+Run the optional load test from the repository root:
 
 ```sh
 k6 run infra/load-tests/k6-script.js
 ```
 
-With a non-default API URL:
+Override the API URL for smoke or load tests:
 
 ```sh
+API_URL=http://localhost:8080 ./scripts/smoke.sh
 API_URL=http://localhost:8080 k6 run infra/load-tests/k6-script.js
-```
-
-Format Java code:
-
-```sh
-cd api-gateway
-./mvnw spotless:apply
-```
-
-Format Go code:
-
-```sh
-cd worker-node
-go fmt ./...
 ```
 
 ## Troubleshooting
 
-If the API is not ready, inspect service logs:
+Check container health and logs:
 
 ```sh
-docker compose logs api-gateway
-docker compose logs postgres
-docker compose logs rabbitmq
-docker compose logs debezium
+docker compose ps
+docker compose logs -f api-gateway worker-node debezium rabbitmq postgres
 ```
 
-If jobs stay `QUEUED`, check Debezium and RabbitMQ routing:
-
-```sh
-docker compose logs debezium
-docker compose logs rabbitmq
-docker compose logs worker-node
-```
-
-If jobs reach `PROCESSING` but never finish, inspect the worker logs and `worker.jobs.dlq` in the RabbitMQ Management UI.
-
-If worker result events are not applied, inspect the API logs and `api.job-results.dlq` in the RabbitMQ Management UI.
-
-If contract validation fails in Docker but passes locally, confirm the `contracts` directory is copied into the relevant image and mounted in the expected working directory.
-
-If a previous run left stale database, RabbitMQ, or Debezium state, reset local volumes:
+If services stay unhealthy after configuration changes, reset local persistent state:
 
 ```sh
 docker compose down -v
 docker compose up --build -d
 ```
 
+Common issues:
+
+- Port conflicts: stop other services using `8080`, `8090`, `15672`, or `16686`, or change the published ports in `compose.yaml`.
+- RabbitMQ login failure: use the credentials from your local `.env`, not the placeholder values in examples.
+- Debezium startup delay: wait for PostgreSQL and RabbitMQ health checks to pass before sending jobs.
+- Jobs remain `QUEUED`: inspect Debezium and RabbitMQ logs, then confirm the worker is healthy.
+- Jobs become `FAILED`: inspect worker logs and try `taskType: "force_failure"` to compare with the intentional failure path.
+- Cancelled jobs should remain `CANCELLED` even if a late worker result arrives; run the smoke test to verify that behavior.
+
 ## API
 
-Base URL:
+Base URL for local Compose usage:
 
 ```text
 http://localhost:8080
 ```
 
-### `POST /api/v1/jobs`
+Endpoints:
 
-Creates a job and publishes a durable outbox event.
+| Method | Path                          | Description                                                              |
+| ------ | ----------------------------- | ------------------------------------------------------------------------ |
+| `POST` | `/api/v1/jobs`                | Create a job, or return an existing job for a repeated `clientRequestId` |
+| `GET`  | `/api/v1/jobs`                | List jobs with optional filters and pagination                           |
+| `GET`  | `/api/v1/jobs/{jobId}`        | Get one job by ID                                                        |
+| `POST` | `/api/v1/jobs/{jobId}/cancel` | Cancel a job                                                             |
 
-Request body:
+Job request fields:
+
+| Field             | Type    | Required | Notes                                                                              |
+| ----------------- | ------- | -------- | ---------------------------------------------------------------------------------- |
+| `taskType`        | string  | yes      | Must not be blank. Use `force_failure` to trigger the worker failure path.         |
+| `complexity`      | integer | yes      | Must be between `1` and `10`. The worker sleeps this many seconds for normal jobs. |
+| `clientRequestId` | string  | no       | Optional idempotency key, maximum 128 characters.                                  |
+
+Example request:
 
 ```json
 {
@@ -381,87 +359,40 @@ Request body:
 }
 ```
 
-Fields:
+Job statuses:
 
-- `taskType`: required non-blank string. Use `force_failure` to exercise the worker failure path.
-- `complexity`: required integer from `1` through `10`. The worker uses this as simulated processing seconds.
-- `clientRequestId`: optional string up to 128 characters for idempotent submission.
+| Status       | Meaning                                   |
+| ------------ | ----------------------------------------- |
+| `PENDING`    | Initial state before queueing work        |
+| `QUEUED`     | Job request has been accepted and queued  |
+| `PROCESSING` | Worker has started processing             |
+| `COMPLETED`  | Worker completed successfully             |
+| `FAILED`     | Worker or event handling reported failure |
+| `CANCELLED`  | Job was cancelled                         |
 
-Responses:
-
-- `202 Accepted`: new job created.
-- `200 OK`: duplicate `clientRequestId`; existing job returned.
-- `400 Bad Request`: request validation failed.
-
-### `GET /api/v1/jobs`
-
-Lists jobs using Spring pageable response format.
-
-Query parameters:
-
-- `status`: optional `PENDING`, `QUEUED`, `PROCESSING`, `COMPLETED`, `FAILED`, or `CANCELLED`.
-- `clientRequestId`: optional idempotency key filter.
-- `page`: optional zero-based page number.
-- `size`: optional page size.
-- `sort`: optional Spring sort expression.
-
-Example:
-
-```sh
-curl "http://localhost:8080/api/v1/jobs?status=COMPLETED&page=0&size=10"
-```
-
-### `GET /api/v1/jobs/{jobId}`
-
-Returns one job by UUID.
-
-Responses:
-
-- `200 OK`: job found.
-- `404 Not Found`: job id does not exist.
-
-### `POST /api/v1/jobs/{jobId}/cancel`
-
-Attempts to cancel a job.
-
-Responses:
-
-- `200 OK`: job found; response body contains the current state after the cancel attempt.
-- `404 Not Found`: job id does not exist.
-
-Cancellation is state-aware. A late worker result should not overwrite a terminal `CANCELLED`, `COMPLETED`, or `FAILED` job.
-
-### Job Response Shape
+Example response shape:
 
 ```json
 {
-  "id": "5a3a6bf4-60e8-414c-9df6-e69e15f2d875",
+  "id": "00000000-0000-0000-0000-000000000000",
   "taskType": "matrix_multiplication",
   "complexity": 3,
   "status": "COMPLETED",
   "result": "{\"status\":\"success\"}",
   "failureMessage": null,
   "clientRequestId": "demo-001",
-  "correlationId": "e390ea57-8260-469c-8e94-91d17d57f8a1",
-  "createdAt": "2026-05-26T00:00:00Z",
-  "updatedAt": "2026-05-26T00:00:03Z"
+  "correlationId": "00000000-0000-0000-0000-000000000000",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-05-27T00:00:03Z"
 }
 ```
 
 ## Contributing
 
-This is a learning POC, so contributions should keep the code easy to inspect and reason about.
+Questions, bug reports, and improvement ideas should go through [GitHub Issues](https://github.com/powoftech/task-engine/issues).
 
-Before opening a pull request:
-
-- Keep changes scoped to one learning goal or behavior.
-- Add or update tests for service logic, event contracts, retries, or state transitions.
-- Run the relevant Java, Go, and smoke tests.
-- Update this README when changing runtime behavior, ports, event contracts, or local setup.
-- Avoid committing local `.env` files, generated volumes, or credentials.
-
-Questions can be asked through the repository issue tracker or directly in the pull request discussion. Pull requests are accepted when they preserve the POC's learning focus and include enough verification for the behavior changed.
+Focused pull requests are accepted. Keep changes scoped, include tests for behavior changes, and update this README when setup, usage, configuration, or API behavior changes.
 
 ## License
 
-Apache-2.0 (c) 2026 Phuong Dang. See [LICENSE](LICENSE).
+[MIT](LICENSE) © 2026 Phuong Dang
